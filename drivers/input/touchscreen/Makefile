@@ -98,3 +98,7 @@ endif
 obj-$(CONFIG_TOUCHSCREEN_GT9XX)		+= gt9xx/
 obj-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET)	+= hxchipset/
 obj-$(CONFIG_TOUCHSCREEN_FTS)		+= focaltech_touch/
+ifdef CONFIG_VENDOR_SMARTISAN
+obj-y += focaltech_touch_smartisan/
+obj-y += novatek_touch/
+endif
