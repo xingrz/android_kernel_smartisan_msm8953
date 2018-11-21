@@ -112,15 +112,8 @@
 		&cdc_pdm_lines_2_act &cross_conn_det_act
 		&pri_tlmm_lines_act &pri_tlmm_ws_act>;
 
-	asoc-codec = <&stub_codec>, <&pm8953_diangu_dig>, <&hdmi_dba>;
-	asoc-codec-names = "msm-stub-codec.1", "cajon_codec",
-						"msm-hdmi-dba-codec-rx";
-	asoc-wsa-codec-names = "wsa881x-i2c-codec.2-000f";
-	asoc-wsa-codec-prefixes = "SpkrMono";
-
-	msm-vdd-wsa-switch-supply = <&pm8953_l5>;
-	qcom,msm-vdd-wsa-switch-voltage = <1800000>;
-	qcom,msm-vdd-wsa-switch-current = <10000>;
+	asoc-codec = <&stub_codec>, <&pm8953_diangu_dig>;
+	asoc-codec-names = "msm-stub-codec.1", "cajon_codec";
 };
 
 &pm8953_gpios {
