@@ -43,11 +43,11 @@
 			linux,code = <114>;
 			debounce-interval = <15>;
 		};
-		key_home {
-			label = "key_home";
+		key_camera {
+			label = "key_camera";
 			gpios = <&tlmm 87 0x1>;
 			linux,input-type = <1>;
-			linux,code = <102>;
+			linux,code = <212>;
 			debounce-interval = <15>;
 			gpio-key,wakeup;
 		};
