@@ -97,3 +97,7 @@ obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE) 	+= synaptics_fw_update.o
 endif
 obj-$(CONFIG_TOUCHSCREEN_GT9XX)		+= gt9xx/
 obj-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET)	+= hxchipset/
+ifdef CONFIG_VENDOR_SMARTISAN
+obj-y += focaltech_touch/
+obj-y += novatek_touch/
+endif
