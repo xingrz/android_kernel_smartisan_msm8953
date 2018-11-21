@@ -30,6 +30,12 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define PARK_LENS_MID_STEP 5
 #define PARK_LENS_SMALL_STEP 3
 #define MAX_QVALUE 4096
+//Begin:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
+#define SEM1310_INIT
+#define SEM1310_OP_MARK 0xFF
+#define SEM1310_OP_READ 0x5C
+#define SEM1310_OP_WRITE 0x0E
+//End:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
 
 static struct v4l2_file_operations msm_actuator_v4l2_subdev_fops;
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl);
@@ -359,6 +365,11 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	int32_t rc = -EFAULT;
 	int32_t i = 0;
 	enum msm_camera_i2c_reg_addr_type save_addr_type;
+//Begin:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
+#ifdef SEM1310_INIT
+	unsigned short se1310_init_data;
+#endif
+//End:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
 	CDBG("Enter\n");
 
 	save_addr_type = a_ctrl->i2c_client.addr_type;
@@ -379,6 +390,23 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 
 		switch (settings[i].i2c_operation) {
 		case MSM_ACT_WRITE:
+//Begin:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
+#ifdef SEM1310_INIT
+			if(settings[i].reg_addr == SEM1310_OP_MARK && settings[i].reg_data == SEM1310_OP_MARK) {
+				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+						&a_ctrl->i2c_client,
+						SEM1310_OP_READ,
+						&se1310_init_data,
+						MSM_ACTUATOR_WORD_DATA);
+				se1310_init_data = (se1310_init_data&0xffff)>>6;
+				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+						&a_ctrl->i2c_client,
+						SEM1310_OP_WRITE,
+						se1310_init_data,
+						MSM_ACTUATOR_WORD_DATA);
+			} else {
+#endif
+//End:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
 			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
 				&a_ctrl->i2c_client,
 				settings[i].reg_addr,
@@ -389,6 +417,12 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 			else if (0 != settings[i].delay)
 				usleep_range(settings[i].delay * 1000,
 					(settings[i].delay * 1000) + 1000);
+//Begin:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
+#ifdef SEM1310_INIT
+			}
+#endif
+//End:wy for sem1310 initialize: Write 0x0E~0x0F = (Read 0x5C~0x5D data >>6) 2016-11-11
+
 			break;
 		case MSM_ACT_POLL:
 			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_poll(
