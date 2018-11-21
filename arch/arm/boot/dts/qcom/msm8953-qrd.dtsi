@@ -12,7 +12,11 @@
  */
 
 #include "msm8953-pinctrl.dtsi"
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include "u3-p1-msm8953-camera-odin.dtsi"
+#else
 #include "msm8953-camera-sensor-qrd.dtsi"
+#endif
 
 &soc {
 	gpio_keys {
@@ -33,6 +37,50 @@
 
 	i2c@78b7000 { /* BLSP1 QUP3 */
 		status = "okay";
+#ifdef CONFIG_VENDOR_SMARTISAN
+		focaltech@38 {
+			compatible = "focaltech,fts";
+			reg = <0x38>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <65 0x2>;
+			vcc_i2c-supply = <&pm8953_l6>;
+			/* pins used by touchscreen */
+			pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+			pinctrl-0 = <&ts_int_active &ts_reset_active>;
+			pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+			pinctrl-2 = <&ts_release>;
+			focaltech,reset-gpio = <&tlmm 64 0x0>;
+			focaltech,irq-gpio = <&tlmm 65 0x2008>;
+			focaltech,max-touch-number = <10>;
+			focaltech,display-coords = <0 0 1080 1920>;
+		};
+
+		novatek@01 {
+			compatible = "novatek,NVT-ts";
+			reg = <0x01>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <65 0x2>;
+			vcc_i2c-supply = <&pm8953_l6>;
+			pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+			pinctrl-0 = <&ts_int_active &ts_reset_active>;
+			pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+			pinctrl-2 = <&ts_release>;
+			novatek,reset-gpio = <&tlmm 64 0x0>;
+			novatek,irq-gpio = <&tlmm 65 0x2008>;
+		};
+
+		nxu8010@44 {
+			compatible = "nxu8010";
+			reg = <0x44>;
+			vdd-supply = <&pm8953_l10>;
+		};
+
+		tcs3400@29 {
+			compatible = "tcs3400";
+			reg = <0x29>;
+			vdd-supply = <&pm8953_l10>;
+		};
+#else
 		synaptics@4b {
 			compatible = "synaptics,dsx-i2c";
 			reg = <0x4b>;
@@ -58,6 +106,7 @@
 			clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
 				<&clock_gcc clk_gcc_blsp1_qup3_i2c_apps_clk>;
 		};
+#endif
 	};
 
 	vdd_vreg: vdd_vreg {
@@ -74,7 +123,11 @@
 &spmi_bus {
 	qcom,pmi8950@2 {
 		qcom,leds@a100 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+			status = "disabled";
+#else
 			status = "okay";
+#endif
 			qcom,led_mpp_2 {
 				label = "mpp";
 				linux,name = "green";
@@ -94,24 +147,33 @@
 / {
 	qrd_batterydata: qcom,battery-data {
 		qcom,batt-id-range-pct = <15>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		#include "batterydata-smartisan-atl-4v4-3500mah.dtsi"
+		#include "batterydata-smartisan-scud-4v4-3500mah.dtsi"
+#else
 		#include "batterydata-qrd-sku1-4v4-2800mah.dtsi"
+#endif
 	};
 };
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 &pm8953_typec {
 	ss-mux-supply = <&pm8953_l6>;
 	qcom,ssmux-gpio = <&tlmm 139 GPIO_ACTIVE_LOW>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&typec_ssmux_config>;
 };
+#endif
 
 &pmi8950_charger {
 	qcom,battery-data = <&qrd_batterydata>;
 	qcom,float-voltage-mv = <4400>;
 	qcom,chg-led-sw-controls;
 	qcom,chg-led-support;
+#ifndef CONFIG_VENDOR_SMARTISAN
 	qcom,external-typec;
 	qcom,typec-psy-name = "typec";
+#endif
 	qcom,thermal-mitigation = <3000 2500 2000 1500 1000 500 0>;
 	status = "okay";
 };
@@ -135,8 +197,15 @@
 &sdhc_1 {
 	/* device core power supply */
 	vdd-supply = <&pm8953_l8>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	qcom,vdd-voltage-level = <2950000 2950000>;
+#else
 	qcom,vdd-voltage-level = <2900000 2900000>;
+#endif
 	qcom,vdd-current-level = <200 570000>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	qcom,vdd-always-on;
+#endif
 
 	/* device communication power supply */
 	vdd-io-supply = <&pm8953_l5>;
@@ -181,7 +250,11 @@
 		1 &intc 0 221 0
 		2 &tlmm 133 0>;
 	interrupt-names = "hc_irq", "pwr_irq", "status_irq";
+#ifdef CONFIG_VENDOR_SMARTISAN
+	cd-gpios = <&tlmm 133 0x0>;
+#else
 	cd-gpios = <&tlmm 133 0x1>;
+#endif
 
 	qcom,clk-rates = <400000 20000000 25000000 50000000 100000000
 								200000000>;
@@ -224,6 +297,7 @@
 	};
 };
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 &i2c_3 {
 	status = "ok";
 };
@@ -232,10 +306,16 @@
 	/delete-node/ qcom,flash_1;
 	/delete-node/ qcom,torch_1;
 };
+#endif
 
 &led_flash0{
+#ifdef CONFIG_VENDOR_SMARTISAN
+	qcom,flash-source = <&pmi8950_flash0 &pmi8950_flash1>;//lijiankun add pmi8950_flash1 & pmi8950_torch1 for flash 2016-11-22
+	qcom,torch-source = <&pmi8950_torch0 &pmi8950_torch1>;//lijiankun add pmi8950_flash1 & pmi8950_torch1 for flash 2016-11-22
+#else
 	qcom,flash-source = <&pmi8950_flash0>;
 	qcom,torch-source = <&pmi8950_torch0>;
+#endif
 };
 
 &pm8953_vadc {
