@@ -531,6 +531,7 @@
 			qcom,led-strings-list = [00 01];
 			qcom,en-ext-pfet-sc-pro;
 			qcom,cons-sync-write-delay-us = <1000>;
+			qcom,en-cabc;
 		};
 
 		flash_led: qcom,leds@d300 {
@@ -564,7 +565,7 @@
 				qcom,max-current = <1000>;
 				qcom,duration = <1280>;
 				qcom,id = <0>;
-				qcom,current = <625>;
+				qcom,current = <1000>;
 			};
 
 			pmi8950_flash1: qcom,flash_1 {
@@ -575,7 +576,7 @@
 				qcom,max-current = <1000>;
 				qcom,duration = <1280>;
 				qcom,id = <1>;
-				qcom,current = <625>;
+				qcom,current = <1000>;
 			};
 
 			pmi8950_torch0: qcom,torch_0 {
@@ -585,7 +586,7 @@
 						"torch0_trigger";
 				qcom,max-current = <200>;
 				qcom,id = <0>;
-				qcom,current = <120>;
+				qcom,current = <60>;
 			};
 
 			pmi8950_torch1: qcom,torch_1 {
@@ -595,7 +596,7 @@
 						"torch1_trigger";
 				qcom,max-current = <200>;
 				qcom,id = <1>;
-				qcom,current = <120>;
+				qcom,current = <60>;
 			};
 
 			pmi8950_switch: qcom,switch {
@@ -606,7 +607,7 @@
 				qcom,max-current = <1000>;
 				qcom,duration = <1280>;
 				qcom,id = <2>;
-				qcom,current = <625>;
+				qcom,current = <1000>;
 				reg0 {
 					regulator-name = "pon_spare_reg";
 				};
