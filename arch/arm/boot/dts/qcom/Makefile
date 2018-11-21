@@ -210,6 +210,9 @@ dtb-$(CONFIG_ARCH_MSM8940) += msm8940-pmi8937-cdp.dtb \
 	msm8940-pmi8940-rcm.dtb \
 	msm8940-pmi8940-qrd-sku7.dtb
 
+ifdef CONFIG_VENDOR_SMARTISAN
+dtb-$(CONFIG_ARCH_MSM8953) += u3-p1-msm8953-odin-qrd.dtb
+else
 dtb-$(CONFIG_ARCH_MSM8953) += msm8953-sim.dtb \
 	msm8953-rumi.dtb \
 	msm8953-cdp.dtb \
@@ -224,6 +227,7 @@ dtb-$(CONFIG_ARCH_MSM8953) += msm8953-sim.dtb \
 	msm8953-cdp-1200p.dtb \
 	msm8953-iot-mtp.dtb \
 	apq8053-iot-mtp.dtb
+endif
 
 dtb-$(CONFIG_ARCH_MDM9607) += mdm9607-rumi.dtb \
 	mdm9607-cdp.dtb \

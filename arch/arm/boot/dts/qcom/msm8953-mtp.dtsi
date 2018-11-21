@@ -194,6 +194,9 @@
 	vdd-supply = <&pm8953_l8>;
 	qcom,vdd-voltage-level = <2900000 2900000>;
 	qcom,vdd-current-level = <200 570000>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	qcom,vdd-always-on;
+#endif
 
 	/* device communication power supply */
 	vdd-io-supply = <&pm8953_l5>;
@@ -247,12 +250,14 @@
 	status = "ok";
 };
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 &pm8953_typec {
 	ss-mux-supply = <&pm8953_l13>;
 	qcom,ssmux-gpio = <&tlmm 139 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&typec_ssmux_config>;
 };
+#endif
 
 /{
 	mtp_batterydata: qcom,battery-data {
@@ -270,8 +275,10 @@
 	qcom,battery-data = <&mtp_batterydata>;
 	qcom,chg-led-sw-controls;
 	qcom,chg-led-support;
+#ifndef CONFIG_VENDOR_SMARTISAN
 	qcom,external-typec;
 	qcom,typec-psy-name = "typec";
+#endif
 };
 
 &pm8953_gpios {
