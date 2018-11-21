@@ -1678,6 +1678,10 @@ static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
 {
 	int ret = 0;
 	int cur_power_state, current_bl;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct fb_event event;
+	event.info = mfd->fbi;
+#endif
 
 	if (!mfd)
 		return -EINVAL;
@@ -1694,6 +1698,13 @@ static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
 		pr_debug("No change in power state\n");
 		return 0;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (mfd->index == 0) {
+		printk("call LCD_EVENT_OFF by fb\n");
+		fb_notifier_call_chain(LCD_EVENT_OFF, &event);
+	}
+#endif
 
 	mutex_lock(&mfd->update.lock);
 	mfd->update.type = NOTIFY_TYPE_SUSPEND;
@@ -1734,6 +1745,10 @@ static int mdss_fb_blank_unblank(struct msm_fb_data_type *mfd)
 {
 	int ret = 0;
 	int cur_power_state;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct fb_event event;
+	event.info = mfd->fbi;
+#endif
 
 	if (!mfd)
 		return -EINVAL;
@@ -1813,6 +1828,13 @@ static int mdss_fb_blank_unblank(struct msm_fb_data_type *mfd)
 		}
 		mutex_unlock(&mfd->bl_lock);
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (mfd->index == 0) {
+		printk("call LCD_EVENT_ON by fb\n");
+		fb_notifier_call_chain(LCD_EVENT_ON, &event);
+	}
+#endif
 
 error:
 	return ret;
@@ -2606,7 +2628,11 @@ static int mdss_fb_open(struct fb_info *info, int user)
 		goto pm_error;
 	}
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!mfd->ref_cnt && mfd->index) {  //fb0 do not blank here
+#else
 	if (!mfd->ref_cnt) {
+#endif
 		result = mdss_fb_blank_sub(FB_BLANK_UNBLANK, info,
 					   mfd->op_enable);
 		if (result) {
@@ -2727,7 +2753,16 @@ static int mdss_fb_release_all(struct fb_info *info, bool release_all)
 
 static int mdss_fb_release(struct fb_info *info, int user)
 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
+	if (mfd->index) {  //only for wfd, fb0 do not release here
+		return mdss_fb_release_all(info, false);
+	} else {
+		return 0;
+	}
+#else
 	return mdss_fb_release_all(info, false);
+#endif
 }
 
 static void mdss_fb_power_setting_idle(struct msm_fb_data_type *mfd)
