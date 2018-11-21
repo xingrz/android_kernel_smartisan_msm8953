@@ -17,15 +17,12 @@
 	qcom,pmi8950@3 {
 		labibb: qpnp-labibb-regulator {
 			ibb_regulator: qcom,ibb@dc00 {
-				/delete-property/
-					qcom,qpnp-ibb-use-default-voltage;
-				qcom,qpnp-ibb-init-lcd-voltage = <5700000>;
+				qcom,qpnp-ibb-init-lcd-voltage = <5500000>;
 			};
 
 			lab_regulator: qcom,lab@de00 {
 				/delete-property/
 					qcom,qpnp-ibb-use-default-voltage;
-				qcom,qpnp-ibb-init-lcd-voltage = <5700000>;
 			};
 		};
 	};
@@ -71,7 +68,7 @@
 	ibb-supply = <&ibb_regulator>;
 	/delete-property/ vdd-supply;
 
-	qcom,dsi-pref-prim-pan = <&dsi_r69006_1080p_cmd>;
+	qcom,dsi-pref-prim-pan = <&dsi_td4310_tcl_1080p_vid>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
 	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
 	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
@@ -86,6 +83,22 @@
 &labibb {
 	status = "ok";
 	qpnp,qpnp-labibb-mode = "lcd";
+};
+
+&dsi_ft8716_1080p_vid {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+&dsi_sharp_ft8716_1080p_vid {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+&dsi_nt36672_1080p_vid {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+&dsi_td4310_tcl_1080p_vid {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 };
 
 &dsi_r69006_1080p_cmd {
