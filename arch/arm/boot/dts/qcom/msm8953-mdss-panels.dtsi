@@ -25,6 +25,7 @@
 #include "dsi-panel-ft8716-1080p-video.dtsi"
 #include "dsi-panel-nt36672-1080p-video.dtsi"
 #include "dsi-panel-sharp-ft8716-1080p-video.dtsi"
+#include "dsi-panel-td4310-tcl-1080p-video.dtsi"
 
 &soc {
 	dsi_panel_pwr_supply: dsi_panel_pwr_supply {
@@ -139,4 +140,10 @@
 		24 1f 08 09 05 03 04 a0
 		24 1f 08 09 05 03 04 a0
 		24 1b 08 09 05 03 04 a0];
+};
+
+&dsi_td4310_tcl_1080p_vid {
+	qcom,mdss-dsi-panel-timings-phy-v2 = <
+		0xd0a080a 0x60304a0 0xd0a080a 0x60304a0 0xd0a080a
+		0x60304a0 0xd0a080a 0x60304a0 0xd1d0809 0x60304a0>;
 };
