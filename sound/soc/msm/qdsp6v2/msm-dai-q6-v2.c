@@ -27,6 +27,7 @@
 #include <sound/q6afe-v2.h>
 #include <sound/msm-dai-q6-v2.h>
 #include <sound/pcm_params.h>
+#include <linux/delay.h>
 
 #define MSM_DAI_PRI_AUXPCM_DT_DEV_ID 1
 #define MSM_DAI_SEC_AUXPCM_DT_DEV_ID 2
@@ -3205,6 +3206,12 @@ static void msm_dai_q6_mi2s_shutdown(struct snd_pcm_substream *substream,
 		 &mi2s_dai_data->tx_dai.mi2s_dai_data);
 	 u16 port_id = 0;
 	int rc = 0;
+
+	/*
+	 * Delay some time to call afe_close in order to eliminate
+	 * pop noise when switching music.
+	 */
+	msleep(50);
 
 	if (msm_mi2s_get_port_id(dai->id, substream->stream,
 				 &port_id) != 0) {

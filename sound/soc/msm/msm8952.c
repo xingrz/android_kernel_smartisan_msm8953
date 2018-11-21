@@ -88,19 +88,20 @@ static int msm8952_wsa_switch_event(struct snd_soc_dapm_widget *w,
 static struct wcd_mbhc_config mbhc_cfg = {
 	.read_fw_bin = false,
 	.calibration = NULL,
-	.detect_extn_cable = true,
+	.detect_extn_cable = false,
 	.mono_stero_detection = false,
 	.swap_gnd_mic = NULL,
 	.hs_ext_micbias = false,
 	.key_code[0] = KEY_MEDIA,
-	.key_code[1] = KEY_VOICECOMMAND,
-	.key_code[2] = KEY_VOLUMEUP,
-	.key_code[3] = KEY_VOLUMEDOWN,
+	.key_code[1] = KEY_VOLUMEUP,
+	.key_code[2] = KEY_VOLUMEDOWN,
+	.key_code[3] = 0,
 	.key_code[4] = 0,
 	.key_code[5] = 0,
 	.key_code[6] = 0,
 	.key_code[7] = 0,
-	.linein_th = 5000,
+/* do not detect lineout device */
+	.linein_th = 0, // 5000
 };
 
 static struct afe_clk_cfg mi2s_rx_clk_v1 = {
@@ -1515,7 +1516,7 @@ static void *def_msm8952_wcd_mbhc_cal(void)
 		return NULL;
 
 #define S(X, Y) ((WCD_MBHC_CAL_PLUG_TYPE_PTR(msm8952_wcd_cal)->X) = (Y))
-	S(v_hs_max, 1500);
+	S(v_hs_max, 1700);
 #undef S
 #define S(X, Y) ((WCD_MBHC_CAL_BTN_DET_PTR(msm8952_wcd_cal)->X) = (Y))
 	S(num_btn, WCD_MBHC_DEF_BUTTONS);
@@ -1540,14 +1541,14 @@ static void *def_msm8952_wcd_mbhc_cal(void)
 	 */
 	btn_low[0] = 75;
 	btn_high[0] = 75;
-	btn_low[1] = 150;
-	btn_high[1] = 150;
-	btn_low[2] = 225;
-	btn_high[2] = 225;
-	btn_low[3] = 450;
-	btn_high[3] = 450;
-	btn_low[4] = 500;
-	btn_high[4] = 500;
+	btn_low[1] = 225;
+	btn_high[1] = 225;
+	btn_low[2] = 400;
+	btn_high[2] = 400;
+	btn_low[3] = 400;
+	btn_high[3] = 400;
+	btn_low[4] = 400;
+	btn_high[4] = 400;
 
 	return msm8952_wcd_cal;
 }
@@ -2268,8 +2269,7 @@ static struct snd_soc_dai_link msm8952_dai[] = {
 		.codec_dai_name = "msm8x16_wcd_i2s_rx1",
 		.no_pcm = 1,
 		.dpcm_playback = 1,
-		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE |
-			ASYNC_DPCM_SND_SOC_HW_PARAMS,
+		.async_ops = ASYNC_DPCM_SND_SOC_PREPARE,
 		.be_id = MSM_BACKEND_DAI_PRI_MI2S_RX,
 		.init = &msm_audrx_init,
 		.be_hw_params_fixup = msm_mi2s_rx_be_hw_params_fixup,
@@ -2670,7 +2670,7 @@ static bool msm8952_swap_gnd_mic(struct snd_soc_codec *codec)
 				__func__, "us_eu_gpio");
 		return false;
 	}
-	gpio_set_value_cansleep(pdata->us_euro_gpio, !value);
+	gpio_direction_output(pdata->us_euro_gpio, !value);
 	pr_debug("%s: swap select switch %d to %d\n", __func__, value, !value);
 
 	ret = msm_gpioset_suspend(CLIENT_WCD_INT, "us_eu_gpio");
@@ -3059,6 +3059,9 @@ parse_mclk_freq:
 			msm8x16_update_int_spk_boost(false);
 		}
 	}
+
+	/* disable speaker boost without wsa device */
+	msm8x16_update_int_spk_boost(false);
 
 	card = msm8952_populate_sndcard_dailinks(&pdev->dev);
 	dev_info(&pdev->dev, "default codec configured\n");

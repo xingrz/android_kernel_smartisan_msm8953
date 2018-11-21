@@ -253,6 +253,8 @@ struct msm8x16_wcd_pdata {
 	int irq_base;
 	int num_irqs;
 	int reset_gpio;
+	int ext_pa_en_gpio;
+	int speaker_id_gpio;
 	void *msm8x16_wcd_ahb_base_vaddr;
 	struct wcd9xxx_micbias_setting micbias;
 	struct msm8x16_wcd_regulator regulator[MAX_REGULATOR];
