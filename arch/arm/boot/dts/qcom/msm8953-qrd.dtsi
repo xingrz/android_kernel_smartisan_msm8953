@@ -86,9 +86,9 @@
 
 / {
 	qrd_batterydata: qcom,battery-data {
-		qcom,batt-id-range-pct = <15>;
-		#include "batterydata-smartisan-atl-4v4-3500mah.dtsi"
-		#include "batterydata-smartisan-scud-4v4-3500mah.dtsi"
+		qcom,batt-id-range-pct = <50>;
+		#include "batterydata-oscar-atl-4v4-3900mah.dtsi"
+		#include "batterydata-oscar-jkga-4v4-4000mah.dtsi"
 	};
 };
 
