@@ -62,7 +62,7 @@
 #define GF_SPIDEV_NAME		"goodix,fingerprint"
 /*device name after register in charater*/
 #define GF_DEV_NAME		"goodix_fp"
-#define	GF_INPUT_NAME		"uinput-goodix"
+#define	GF_INPUT_NAME		"gf3206"
 
 #define	CHRD_DRIVER_NAME	"goodix_fp_spi"
 #define	CLASS_NAME		"goodix_fp"
