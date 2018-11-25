@@ -44,10 +44,13 @@
 #include "msm-ds2-dap-config.h"
 #include "q6voice.h"
 #include "sound/q6lsm.h"
+#include "msm-elliptic.h"
 
 static int get_cal_path(int path_type);
 
 static struct mutex routing_lock;
+
+struct mutex *ptr_routing_lock = &routing_lock;
 
 static struct cal_type_data *cal_data;
 
@@ -9519,6 +9522,8 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 
 	snd_soc_add_platform_controls(platform, msm_source_tracking_controls,
 				      ARRAY_SIZE(msm_source_tracking_controls));
+
+	elliptic_add_platform_controls(platform);
 	return 0;
 }
 

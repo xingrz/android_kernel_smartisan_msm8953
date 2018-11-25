@@ -28,6 +28,8 @@
 #include <sound/adsp_err.h>
 #include <linux/qdsp6v2/apr_tal.h>
 
+#include "msm-elliptic.h"
+
 #define WAKELOCK_TIMEOUT	5000
 enum {
 	AFE_COMMON_RX_CAL = 0,
@@ -112,6 +114,8 @@ struct afe_ctl {
 	struct audio_cal_info_sp_ex_vi_ftm_cfg	ex_ftm_cfg;
 	struct afe_sp_th_vi_get_param_resp	th_vi_resp;
 	struct afe_sp_ex_vi_get_param_resp	ex_vi_resp;
+	struct afe_ultrasound_calib_get_resp	ultrasound_calib_data;
+	atomic_t elusAprState;
 	int vi_tx_port;
 	int vi_rx_port;
 	uint32_t afe_sample_rates[AFE_MAX_PORTS];
@@ -134,6 +138,15 @@ bool afe_close_done[2] = {true, true};
 
 #define SIZEOF_CFG_CMD(y) \
 		(sizeof(struct apr_hdr) + sizeof(u16) + (sizeof(struct y)))
+
+atomic_t *ptr_elusAprState = &this_afe.elusAprState;
+void **ptr_apr = &this_afe.apr;
+atomic_t *ptr_status = &this_afe.status;
+atomic_t *ptr_state = &this_afe.state;
+wait_queue_head_t *ptr_wait = this_afe.wait;
+int afe_timeout_ms = TIMEOUT_MS;
+struct afe_ultrasound_calib_get_resp *ptr_ultrasound_calib_data =
+		&this_afe.ultrasound_calib_data;
 
 static int afe_get_cal_hw_delay(int32_t path,
 				struct audio_cal_hw_delay_entry *entry);
@@ -320,6 +333,11 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			return -EINVAL;
 
 		wake_up(&this_afe.wait[data->token]);
+	} else if (data->opcode == ULTRASOUND_OPCODE) {
+		if (data->payload != NULL)
+			process_us_payload(data->payload);
+		else
+			pr_err("%s: payload == NULL !\n", __func__);
 	} else if (data->payload_size) {
 		uint32_t *payload;
 		uint16_t port_id = 0;
