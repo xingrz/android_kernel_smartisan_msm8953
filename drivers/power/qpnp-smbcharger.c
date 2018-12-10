@@ -39,6 +39,9 @@
 #include <linux/msm_bcl.h>
 #include <linux/ktime.h>
 #include <linux/pmic-voter.h>
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include <linux/fb.h>
+#endif
 
 /* Mask/Bit helpers */
 #define _SMB_MASK(BITS, POS) \
@@ -155,6 +158,11 @@ struct smbchg_chip {
 	struct dentry			*debug_root;
 	struct smbchg_version_tables	tables;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct notifier_block		fb_notifier;
+	bool 				fb_ready;
+#endif
+
 	/* wipower params */
 	struct ilim_map			wipower_default;
 	struct ilim_map			wipower_pt;
@@ -210,6 +218,9 @@ struct smbchg_chip {
 	unsigned int			thermal_levels;
 	unsigned int			therm_lvl_sel;
 	unsigned int			*thermal_mitigation;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int				cool_comp_ma; //ontim:houzn add
+#endif
 
 	/* irqs */
 	int				batt_hot_irq;
@@ -966,7 +977,11 @@ static int get_prop_batt_status(struct smbchg_chip *chip)
 	else
 		status = POWER_SUPPLY_STATUS_CHARGING;
 out:
+#ifdef CONFIG_VENDOR_SMARTISAN
+	pr_smb_rt(PR_INTERRUPT, "CHGR_STS = 0x%02x\n", reg);
+#else
 	pr_smb_rt(PR_MISC, "CHGR_STS = 0x%02x\n", reg);
+#endif
 	return status;
 }
 
@@ -3048,6 +3063,12 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 	int rc = 0;
 	int prev_therm_lvl;
 	int thermal_icl_ma;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int tmp_fb_ready;
+	int fb_off_lvl[] = {0,0,0,0,2,4,6,7}; // <0      1       2      3      4       5       6    7>
+	int fb_on_lvl[] = {0,1,2,3,5,6,6,7}; // <3500 3500 3000 2500 2000 1200 800 0>
+	int kernel_lvl_sel = 0;
+#endif
 
 	if (!chip->thermal_mitigation) {
 		dev_err(chip->dev, "Thermal mitigation not supported\n");
@@ -3065,8 +3086,10 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 		lvl_sel = chip->thermal_levels - 1;
 	}
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 	if (lvl_sel == chip->therm_lvl_sel)
 		return 0;
+#endif
 
 	mutex_lock(&chip->therm_lvl_lock);
 	prev_therm_lvl = chip->therm_lvl_sel;
@@ -3091,7 +3114,26 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 		goto out;
 	}
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	tmp_fb_ready = chip->fb_ready;
+
+	if (tmp_fb_ready) {
+		kernel_lvl_sel = fb_on_lvl[chip->therm_lvl_sel];
+	} else {
+		kernel_lvl_sel = fb_off_lvl[chip->therm_lvl_sel];
+	}
+
+	thermal_icl_ma =
+		(int)chip->thermal_mitigation[kernel_lvl_sel];
+
+	pr_smb(PR_STATUS, "fb_ready=%d, therm_lvl=%d, kernel_lvl=%d, thermal_icl_ma=%d\n",
+			tmp_fb_ready,chip->therm_lvl_sel, kernel_lvl_sel, thermal_icl_ma);
+
+	if (kernel_lvl_sel == 0) {
+		pr_smb(PR_STATUS, "Fb is ready, Ignoring thermal config.\n");
+#else
 	if (chip->therm_lvl_sel == 0) {
+#endif
 		rc = vote(chip->usb_icl_votable, THERMAL_ICL_VOTER, false, 0);
 		if (rc < 0)
 			pr_err("Couldn't disable USB thermal ICL vote rc=%d\n",
@@ -3102,8 +3144,10 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 			pr_err("Couldn't disable DC thermal ICL vote rc=%d\n",
 				rc);
 	} else {
+#ifndef CONFIG_VENDOR_SMARTISAN
 		thermal_icl_ma =
 			(int)chip->thermal_mitigation[chip->therm_lvl_sel];
+#endif
 		rc = vote(chip->usb_icl_votable, THERMAL_ICL_VOTER, true,
 					thermal_icl_ma);
 		if (rc < 0)
@@ -3798,6 +3842,10 @@ static int smbchg_icl_loop_disable_check(struct smbchg_chip *chip)
 	return rc;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static irqreturn_t batt_cool_handler(int irq, void *_chip);
+#endif
+
 #define UNKNOWN_BATT_TYPE	"Unknown Battery"
 #define LOADING_BATT_TYPE	"Loading Battery Data"
 static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
@@ -3806,6 +3854,9 @@ static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 	struct device_node *batt_node, *profile_node;
 	struct device_node *node = chip->spmi->dev.of_node;
 	union power_supply_propval prop = {0,};
+#ifdef CONFIG_VENDOR_SMARTISAN
+	static int first_flag = 0;
+#endif
 
 	rc = chip->bms_psy->get_property(chip->bms_psy,
 			POWER_SUPPLY_PROP_BATTERY_TYPE, &prop);
@@ -3904,6 +3955,23 @@ static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 			}
 		}
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!of_find_property(chip->spmi->dev.of_node,
+				"qcom,cool-fastchg-current-comp", NULL)) {
+		rc = of_property_read_u32(profile_node,
+				"qcom,cool-fastchg-current-comp", &chip->cool_comp_ma);
+		if (rc) {
+			pr_warn("couldn't find battery cool fastchg comp current rc=%d\n", rc);
+			ret = rc;
+		}
+		pr_smb(PR_MISC,"cool-fastchg-current-comp=%d\n", chip->cool_comp_ma);
+		if (chip->cool_comp_ma && first_flag == 0) {
+			batt_cool_handler(0, chip);
+			first_flag = 1;
+		}
+	}
+#endif
 
 	return ret;
 }
@@ -4675,20 +4743,32 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 	 * modes, skip all BC 1.2 current if external typec is supported.
 	 * Note: for SDP supporting current based on USB notifications.
 	 */
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (type == POWER_SUPPLY_TYPE_USB)
+		current_limit_ma = DEFAULT_SDP_MA;
+	else if (type == POWER_SUPPLY_TYPE_USB_DCP)
+		current_limit_ma = smbchg_default_dcp_icl_ma;
+#else
 	if (chip->typec_psy && (type != POWER_SUPPLY_TYPE_USB))
 		current_limit_ma = chip->typec_current_ma;
 	else if (type == POWER_SUPPLY_TYPE_USB)
 		current_limit_ma = DEFAULT_SDP_MA;
 	else if (type == POWER_SUPPLY_TYPE_USB)
 		current_limit_ma = DEFAULT_SDP_MA;
+#endif
 	else if (type == POWER_SUPPLY_TYPE_USB_CDP)
 		current_limit_ma = DEFAULT_CDP_MA;
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP)
 		current_limit_ma = smbchg_default_hvdcp_icl_ma;
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP_3)
 		current_limit_ma = smbchg_default_hvdcp3_icl_ma;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	else
+		current_limit_ma = DEFAULT_SDP_MA;
+#else
 	else
 		current_limit_ma = smbchg_default_dcp_icl_ma;
+#endif
 
 	pr_smb(PR_STATUS, "Type %d: setting mA = %d\n",
 		type, current_limit_ma);
@@ -6493,6 +6573,11 @@ static int smbchg_dc_is_writeable(struct power_supply *psy,
 #define BAT_LOW_BIT		BIT(5)
 #define BAT_MISSING_BIT		BIT(6)
 #define BAT_TERM_MISSING_BIT	BIT(7)
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define WARM_CURRENT_COMP	1200
+#define COOL_VOLTAGE_SUB_COMP	0x0
+#define WARM_VOLTAGE_SUB_COMP	0x10
+#endif
 static irqreturn_t batt_hot_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
@@ -6533,10 +6618,31 @@ static irqreturn_t batt_warm_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
 	u8 reg = 0;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	u8 rc = 0;
+#endif
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_warm = !!(reg & HOT_BAT_SOFT_BIT);
 	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (chip->batt_warm) {
+		rc = smbchg_fastchg_current_comp_set(chip, WARM_CURRENT_COMP);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set fastchg current comp rc = %d\n",
+				rc);
+			return rc;
+		}
+
+		rc = smbchg_float_voltage_comp_set(chip, WARM_VOLTAGE_SUB_COMP);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set float voltage comp rc = %d\n",
+				rc);
+			return rc;
+		}
+		pr_smb(PR_INTERRUPT, "make change jeita compensate when battery warm\n");
+	}
+#endif
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -6549,10 +6655,33 @@ static irqreturn_t batt_cool_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
 	u8 reg = 0;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	u8 rc = 0;
+#endif
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_cool = !!(reg & COLD_BAT_SOFT_BIT);
 	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (chip->batt_cool && chip->cool_comp_ma) {
+		pr_info("chip->cool_comp_ma = %d\n", chip->cool_comp_ma);
+		rc = smbchg_fastchg_current_comp_set(chip, chip->cool_comp_ma);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set fastchg current comp rc = %d\n",
+				rc);
+			return rc;
+		}
+
+		rc = smbchg_float_voltage_comp_set(chip, COOL_VOLTAGE_SUB_COMP);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set float voltage comp rc = %d\n",
+				rc);
+			return rc;
+		}
+
+		pr_smb(PR_INTERRUPT, "make change jeita compensate when battery cool.\n");
+	}
+#endif
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -8425,6 +8554,33 @@ static void rerun_hvdcp_det_if_necessary(struct smbchg_chip *chip)
 	}
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int smbchg_fb_notifier_cb(struct notifier_block *self,
+		unsigned long event, void *data)
+{
+	struct smbchg_chip *chip = container_of(self, struct smbchg_chip,
+			fb_notifier);
+
+	switch (event) {
+		case LCD_EVENT_ON:
+			chip->fb_ready = true;
+			break;
+		case LCD_EVENT_OFF:
+			chip->fb_ready = false;
+			break;
+		default:
+			break;
+	}
+
+	if (event == LCD_EVENT_ON || event == LCD_EVENT_OFF) {
+		smbchg_system_temp_level_set(chip, chip->therm_lvl_sel);
+		pr_info("houzn:smbchg_system_temp_level_set = %d ------- 111\n", chip->therm_lvl_sel);
+	}
+
+	return 0;
+}
+#endif
+
 static int smbchg_probe(struct spmi_device *spmi)
 {
 	int rc;
@@ -8567,6 +8723,14 @@ static int smbchg_probe(struct spmi_device *spmi)
 		rc = PTR_ERR(chip->hvdcp_enable_votable);
 		goto votables_cleanup;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	chip->fb_notifier.notifier_call = smbchg_fb_notifier_cb;
+	rc = fb_register_client(&chip->fb_notifier);
+	if (rc < 0) {
+		dev_err(&spmi->dev, "Failed to register fb notifier client\n");
+	}
+#endif
 
 	INIT_WORK(&chip->usb_set_online_work, smbchg_usb_update_online_work);
 	INIT_DELAYED_WORK(&chip->parallel_en_work,
@@ -8728,6 +8892,9 @@ unregister_batt_psy:
 	power_supply_unregister(&chip->batt_psy);
 out:
 	handle_usb_removal(chip);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	fb_unregister_client(&chip->fb_notifier);
+#endif
 votables_cleanup:
 	if (chip->aicl_deglitch_short_votable)
 		destroy_votable(chip->aicl_deglitch_short_votable);
@@ -8769,6 +8936,10 @@ static int smbchg_remove(struct spmi_device *spmi)
 	destroy_votable(chip->dc_icl_votable);
 	destroy_votable(chip->usb_icl_votable);
 	destroy_votable(chip->fcc_votable);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	fb_unregister_client(&chip->fb_notifier);
+#endif
 
 	return 0;
 }
@@ -8878,6 +9049,10 @@ static void smbchg_shutdown(struct spmi_device *spmi)
 
 	disable_irq(chip->src_detect_irq);
 	disable_irq(chip->usbin_uv_irq);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	fb_unregister_client(&chip->fb_notifier);
+#endif
 
 	pr_smb(PR_MISC, "Wait 1S to settle\n");
 	msleep(1000);
