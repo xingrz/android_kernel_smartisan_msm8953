@@ -1115,6 +1115,7 @@ void mdss_dsi_panel_dsc_pps_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	mdss_dsi_panel_cmds_send(ctrl, &pcmds, CMD_REQ_COMMIT);
 }
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 static int mdss_dsi_parse_hdr_settings(struct device_node *np,
 		struct mdss_panel_info *pinfo)
 {
@@ -1166,6 +1167,7 @@ static int mdss_dsi_parse_hdr_settings(struct device_node *np,
 	}
 	return 0;
 }
+#endif
 
 static int mdss_dsi_parse_dsc_version(struct device_node *np,
 		struct mdss_panel_timing *timing)
@@ -2514,9 +2516,11 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	rc = mdss_panel_parse_display_timings(np, &ctrl_pdata->panel_data);
 	if (rc)
 		return rc;
+#ifndef CONFIG_VENDOR_SMARTISAN
 	rc = mdss_dsi_parse_hdr_settings(np, pinfo);
 	if (rc)
 		return rc;
+#endif
 
 	pinfo->mipi.rx_eot_ignore = of_property_read_bool(np,
 		"qcom,mdss-dsi-rx-eot-ignore");
