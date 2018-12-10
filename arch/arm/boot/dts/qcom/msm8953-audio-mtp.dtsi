@@ -19,24 +19,88 @@
 
 &pm8953_diangu_dig {
 	status = "okay";
+	qcom,cdc-micbias-cfilt-mv = <2700000>; /* set micbias2 to 2.7v default */
+	qcom,ext-pa-enable = <&tlmm 63  0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&ext_pa_en_default>;
+};
+
+&tlmm {
+	ext_pa_en_default: ext_pa_en_default {
+		mux {
+			pins = "gpio63";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio63";
+			drive-strength = <8>;
+			output-low;
+			bias-disable;
+		};
+	};
 };
 
 &pm8953_diangu_analog {
 	status = "okay";
 };
 
-&wsa881x_i2c_e {
-	status = "okay";
+// ontim:houzn add
+&tlmm {
+	usb_switch_default: usb_switch_default{
+		mux {
+			pins = "gpio33";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio33";
+			drive-strength = <8>;
+			output-low; // select usb default
+			bias-disable;
+		};
+	};
+
+	hs_det_default: hs_det_default{
+		mux {
+			pins = "gpio25";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio25";
+			drive-strength = <8>;
+			output-high;
+			bias-disable;
+		};
+	};
+};
+// add end
+
+&slim_msm {
+	status = "disabled";
 };
 
-&wsa881x_i2c_44 {
-	status = "okay";
+&dai_slim {
+	status = "disabled";
 };
 
-&wsa881x_i2c_f {
-	status = "okay";
+&wcd9xxx_intc {
+	status = "disabled";
 };
 
-&wsa881x_i2c_45 {
-	status = "okay";
+&clock_audio {
+	status = "disabled";
+};
+
+&wcd9335 {
+	status = "disabled";
+};
+
+&wcd_rst_gpio {
+	status = "disabled";
+};
+
+&ext_codec {
+	status = "disabled";
 };
