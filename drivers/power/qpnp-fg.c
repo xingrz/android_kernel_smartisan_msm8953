@@ -310,6 +310,11 @@ static struct fg_mem_data fg_backup_regs[FG_BACKUP_MAX] = {
 	BACKUP(MAH_TO_SOC,	0x4A0,   0,      4,     -EINVAL),
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern int  synaptics_adjust_charging_status(bool status);
+int charging_status = 0;
+#endif
+
 static int fg_debug_mask;
 module_param_named(
 	debug_mask, fg_debug_mask, int, S_IRUSR | S_IWUSR
@@ -516,6 +521,9 @@ struct fg_chip {
 	bool			first_profile_loaded;
 	struct fg_wakeup_source	update_temp_wakeup_source;
 	struct fg_wakeup_source	update_sram_wakeup_source;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct fg_wakeup_source cycle_battery_source;
+#endif
 	bool			fg_restarting;
 	bool			profile_loaded;
 	bool			soc_reporting_ready;
@@ -2028,7 +2036,11 @@ static void fg_handle_battery_insertion(struct fg_chip *chip)
 
 static int soc_to_setpoint(int soc)
 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	return soc;
+#else
 	return DIV_ROUND_CLOSEST(soc * 255, 100);
+#endif
 }
 
 static void batt_to_setpoint_adc(int vbatt_mv, u8 *data)
@@ -2239,9 +2251,62 @@ static int get_monotonic_soc_raw(struct fg_chip *chip)
 
 #define EMPTY_CAPACITY		0
 #define DEFAULT_CAPACITY	50
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define MISSING_CAPACITY	40 // ontim:houzn modify 100 to 40
+#else
 #define MISSING_CAPACITY	100
+#endif
 #define FULL_CAPACITY		100
 #define FULL_SOC_RAW		0xFF
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int adjustBatteryLevel(int level)
+{
+	if (EMPTY_CAPACITY == level) {
+		return 0;
+	} else if (level <= 0x07) {
+		return 1;
+	} else if (level >= 0xf9) {
+		level = 100;
+	} else {
+		level = level - 0x07;
+		/*2.367 = (0xf4-0x0c) / 98%*/
+		/*2.459 = (0xf8-0x07) / 98*/
+		level = DIV_ROUND_CLOSEST(level * 1000, 2459) + 1;
+	}
+
+	return level;
+}
+
+/**
+ * Func: trim battery soc value.
+ *
+ * Trim Rule Used:
+ * 	> Take [0 ~ 100] as an example:
+ *             Trim as 1    if:    [1, 5%)
+ *             Trim as 2~99 if:    [5%, 95%)
+ *             Trim as 100  if:    [95, 100)
+ * Para:
+ *             raw_soc: raw soc value
+ */
+int trim_bat_soc(int raw_soc)
+{
+	int new_soc = 0;
+
+	if (raw_soc <= 0)
+		return 0;
+	else if (raw_soc >= FULL_SOC_RAW)
+		return 100;
+
+	new_soc = adjustBatteryLevel(raw_soc);
+
+	if (fg_debug_mask & FG_POWER_SUPPLY)
+		pr_info("%s raw_soc=%#x, new_soc=%d\n", __func__, raw_soc, new_soc);
+
+	return new_soc;
+}
+#endif
+
 static int get_prop_capacity(struct fg_chip *chip)
 {
 	int msoc, rc;
@@ -2250,9 +2315,13 @@ static int get_prop_capacity(struct fg_chip *chip)
 	if (chip->use_last_soc && chip->last_soc) {
 		if (chip->last_soc == FULL_SOC_RAW)
 			return FULL_CAPACITY;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		return trim_bat_soc(chip->last_soc);
+#else
 		return DIV_ROUND_CLOSEST((chip->last_soc - 1) *
 				(FULL_CAPACITY - 2),
 				FULL_SOC_RAW - 2) + 1;
+#endif
 	}
 
 	if (chip->battery_missing)
@@ -2282,9 +2351,13 @@ static int get_prop_capacity(struct fg_chip *chip)
 			}
 
 			if (!vbatt_low_sts)
+#ifdef CONFIG_VENDOR_SMARTISAN
+				return trim_bat_soc(chip->last_soc);
+#else
 				return DIV_ROUND_CLOSEST((chip->last_soc - 1) *
 						(FULL_CAPACITY - 2),
 						FULL_SOC_RAW - 2) + 1;
+#endif
 			else
 				return EMPTY_CAPACITY;
 		} else {
@@ -2294,8 +2367,12 @@ static int get_prop_capacity(struct fg_chip *chip)
 		return FULL_CAPACITY;
 	}
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	return trim_bat_soc(msoc);
+#else
 	return DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
 			FULL_SOC_RAW - 2) + 1;
+#endif
 }
 
 #define HIGH_BIAS	3
@@ -2321,7 +2398,11 @@ static int64_t get_batt_id(unsigned int battery_id_uv, u8 bid_info)
 	return battery_id_ohm;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define DEFAULT_TEMP_DEGC	200
+#else
 #define DEFAULT_TEMP_DEGC	250
+#endif
 static int get_sram_prop_now(struct fg_chip *chip, unsigned int type)
 {
 	if (fg_debug_mask & FG_POWER_SUPPLY)
@@ -2707,6 +2788,13 @@ out:
 	fg_relax(&chip->sanity_wakeup_source);
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define HIGH_BATTERY_OCV 		4100000
+#define HIGH_BATTERY_FCC		2800000
+#define DEFAULT_BATTERY_FCC		3500000
+static int set_prop_set_fcc(struct fg_chip *chip, int current_ma);
+#endif
+
 #define SRAM_TIMEOUT_MS			3000
 static void update_sram_data_work(struct work_struct *work)
 {
@@ -2714,6 +2802,9 @@ static void update_sram_data_work(struct work_struct *work)
 				struct fg_chip,
 				update_sram_data.work);
 	int resched_ms, ret;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	static bool first_flag = false;
+#endif
 	bool tried_again = false;
 	int rc = 0;
 
@@ -2736,6 +2827,33 @@ wait:
 		goto out;
 	}
 	rc = update_sram_data(chip, &resched_ms);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	fg_stay_awake(&chip->cycle_battery_source);
+	if (fg_data[FG_DATA_OCV].value > HIGH_BATTERY_OCV) {
+		if (first_flag == false) {
+			rc = set_prop_set_fcc(chip, HIGH_BATTERY_FCC);
+			if (rc) {
+				pr_err("failed to set fcc %d\n", rc);
+				goto out;
+			}
+			first_flag = true;
+			pr_info("hzn: soc set fcc 2800ma, [%d]\n", fg_data[FG_DATA_OCV].value);
+		}
+	} else {
+		if (first_flag == true) {
+			rc = set_prop_set_fcc(chip, DEFAULT_BATTERY_FCC);
+			if (rc) {
+				pr_err("failed to set fcc %d\n", rc);
+				goto out;
+			}
+			first_flag = false;
+			pr_info("hzn: soc set fcc 3500ma, [%d]\n", fg_data[FG_DATA_OCV].value);
+		}
+	}
+
+	fg_relax(&chip->cycle_battery_source);
+#endif
 
 out:
 	if (!rc)
@@ -4012,6 +4130,32 @@ static int set_prop_enable_charging(struct fg_chip *chip, bool enable)
 	return rc;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int set_prop_set_fcc(struct fg_chip *chip, int current_ma)
+{
+	int rc = 0;
+	union power_supply_propval ret = {current_ma, };
+
+	if (!is_charger_available(chip)) {
+		pr_err("Charger not available yet!\n");
+		return -EINVAL;
+	}
+
+	rc = chip->batt_psy->set_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
+			&ret);
+	if (rc) {
+		pr_err("couldn't configure batt fcc %d\n", rc);
+		return rc;
+	}
+
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("hzn: set fcc to %d\n", current_ma);
+
+	return rc;
+}
+#endif
+
 #define MAX_BATTERY_CC_SOC_CAPACITY		150
 static void status_change_work(struct work_struct *work)
 {
@@ -4027,6 +4171,18 @@ static void status_change_work(struct work_struct *work)
 			pr_info("Battery is missing\n");
 		return;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (chip->status == POWER_SUPPLY_STATUS_DISCHARGING) {
+		pr_err("wuyx---------status_change_work-------discharging-----\n");
+		synaptics_adjust_charging_status(false);
+		charging_status = 0;
+	} else if (chip->status == POWER_SUPPLY_STATUS_CHARGING) {
+		pr_err("wuyx---------status_change_work-------charging-----\n");
+		synaptics_adjust_charging_status(true);
+		charging_status = 1;
+	}
+#endif
 
 	if (chip->esr_pulse_tune_en) {
 		fg_stay_awake(&chip->esr_extract_wakeup_source);
@@ -7516,6 +7672,9 @@ static void fg_cleanup(struct fg_chip *chip)
 	wakeup_source_trash(&chip->fg_reset_wakeup_source.source);
 	wakeup_source_trash(&chip->cc_soc_wakeup_source.source);
 	wakeup_source_trash(&chip->sanity_wakeup_source.source);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	wakeup_source_trash(&chip->cycle_battery_source.source);
+#endif
 }
 
 static int fg_remove(struct spmi_device *spmi)
@@ -8737,6 +8896,10 @@ static int fg_probe(struct spmi_device *spmi)
 			"qpnp_fg_cc_soc");
 	wakeup_source_init(&chip->sanity_wakeup_source.source,
 			"qpnp_fg_sanity_check");
+#ifdef CONFIG_VENDOR_SMARTISAN
+	wakeup_source_init(&chip->cycle_battery_source.source,
+			"qpnp_fg_cycle_ocv");
+#endif
 	spin_lock_init(&chip->sec_access_lock);
 	mutex_init(&chip->rw_lock);
 	mutex_init(&chip->cyc_ctr.lock);
@@ -8910,7 +9073,11 @@ static int fg_probe(struct spmi_device *spmi)
 	}
 
 	/* Fake temperature till the actual temperature is read */
+#ifdef CONFIG_VENDOR_SMARTISAN
+	chip->last_good_temp = 200;
+#else
 	chip->last_good_temp = 250;
+#endif
 
 	/* Initialize batt_info variables */
 	chip->batt_range_ocv = &fg_batt_valid_ocv;
@@ -8951,6 +9118,9 @@ of_init_fail:
 	wakeup_source_trash(&chip->fg_reset_wakeup_source.source);
 	wakeup_source_trash(&chip->cc_soc_wakeup_source.source);
 	wakeup_source_trash(&chip->sanity_wakeup_source.source);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	wakeup_source_trash(&chip->cycle_battery_source.source);
+#endif
 	return rc;
 }
 
