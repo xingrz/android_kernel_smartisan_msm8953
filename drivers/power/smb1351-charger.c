@@ -1022,7 +1022,7 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 		chip->fastchg_current_max_ma = fast_chg_current[i];
 
 		i = i << SMB1351_CHG_FAST_SHIFT;
-		pr_debug("fastchg limit=%d setting %02x\n",
+		pr_info("fastchg limit=%d setting %02x\n",
 					chip->fastchg_current_max_ma, i);
 
 		/* make sure pre chg mode is disabled */
@@ -2489,7 +2489,7 @@ static int smb1351_parallel_set_chg_present(struct smb1351_charger *chip,
 		}
 
 		/* set fast charging current limit */
-		chip->target_fastchg_current_max_ma = SMB1351_CHG_FAST_MIN_MA;
+		chip->target_fastchg_current_max_ma = 2000; //SMB1351_CHG_FAST_MIN_MA;
 		rc = smb1351_fastchg_current_set(chip,
 					chip->target_fastchg_current_max_ma);
 		if (rc) {

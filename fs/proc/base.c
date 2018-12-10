@@ -2739,6 +2739,7 @@ static int proc_pid_personality(struct seq_file *m, struct pid_namespace *ns,
 static const struct file_operations proc_task_operations;
 static const struct inode_operations proc_task_inode_operations;
 
+static const struct file_operations proc_pid_fsync_ignore_operations;
 static const struct pid_entry tgid_base_stuff[] = {
 	DIR("task",       S_IRUGO|S_IXUGO, proc_task_inode_operations, proc_task_operations),
 	DIR("fd",         S_IRUSR|S_IXUSR, proc_fd_inode_operations, proc_fd_operations),
@@ -2845,6 +2846,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	REG("timers",	  S_IRUGO, proc_timers_operations),
 #endif
+	REG("fsync_ignore",      S_IRUGO|S_IWUGO, proc_pid_fsync_ignore_operations),
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3414,3 +3416,66 @@ static const struct file_operations proc_task_operations = {
 	.iterate	= proc_task_readdir,
 	.llseek		= default_llseek,
 };
+
+static int fsync_ignore_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = m->private;
+	struct task_struct *p;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+	seq_printf(m, "%d\n", (p->flags & (PF_IGNORE_FSYNC | PF_IGNORE_FDATASYNC)) >> (fls(PF_IGNORE_FSYNC) - 1));
+
+	put_task_struct(p);
+
+	return 0;
+}
+
+static int fsync_ignore_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, fsync_ignore_show, inode);
+}
+
+static ssize_t
+fsync_ignore_write(struct file *file, const char __user *buf,
+	    size_t count, loff_t *offset)
+{
+	struct inode *inode = file_inode(file);
+	struct task_struct *p;
+	char buffer[PROC_NUMBUF];
+	int fsync_ignore, err;
+
+	memset(buffer, 0, sizeof(buffer));
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+	if (copy_from_user(buffer, buf, count)) {
+		err = -EFAULT;
+		goto out;
+	}
+
+	err = kstrtoint(strstrip(buffer), 0, &fsync_ignore);
+	if (err)
+		goto out;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+	if (p == current) {
+		p->flags &= (~(PF_IGNORE_FSYNC | PF_IGNORE_FDATASYNC));
+		p->flags |= ((fsync_ignore << (fls(PF_IGNORE_FSYNC) - 1)) & (PF_IGNORE_FSYNC | PF_IGNORE_FDATASYNC));
+	}
+	put_task_struct(p);
+
+out:
+	return err < 0 ? err : count;
+}
+
+static const struct file_operations proc_pid_fsync_ignore_operations = {
+	.open		= fsync_ignore_open,
+	.read		= seq_read,
+	.write		= fsync_ignore_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+

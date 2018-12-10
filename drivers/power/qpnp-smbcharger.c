@@ -38,6 +38,7 @@
 #include <linux/of_batterydata.h>
 #include <linux/msm_bcl.h>
 #include <linux/ktime.h>
+#include <linux/fb.h> //ontim:houzn add
 #include "pmic-voter.h"
 
 /* Mask/Bit helpers */
@@ -150,7 +151,10 @@ struct smbchg_chip {
 	struct delayed_work		parallel_en_work;
 	struct dentry			*debug_root;
 	struct smbchg_version_tables	tables;
-
+//ontim:houzn add start
+	struct notifier_block fb_notifier;
+	bool 				  fb_ready;
+//ontim:houzn add end
 	/* wipower params */
 	struct ilim_map			wipower_default;
 	struct ilim_map			wipower_pt;
@@ -206,6 +210,7 @@ struct smbchg_chip {
 	unsigned int			thermal_levels;
 	unsigned int			therm_lvl_sel;
 	unsigned int			*thermal_mitigation;
+	int			cool_comp_ma; //ontim:houzn add
 
 	/* irqs */
 	int				batt_hot_irq;
@@ -428,7 +433,8 @@ enum hvdcp_voters {
 	HVDCP_PULSING_VOTER,
 	NUM_HVDCP_VOTERS,
 };
-static int smbchg_debug_mask;
+
+static int smbchg_debug_mask = 0x04;
 module_param_named(
 	debug_mask, smbchg_debug_mask, int, S_IRUSR | S_IWUSR
 );
@@ -977,7 +983,7 @@ static int get_prop_batt_status(struct smbchg_chip *chip)
 	else
 		status = POWER_SUPPLY_STATUS_CHARGING;
 out:
-	pr_smb_rt(PR_MISC, "CHGR_STS = 0x%02x\n", reg);
+	pr_smb_rt(PR_INTERRUPT, "CHGR_STS = 0x%02x\n", reg);
 	return status;
 }
 
@@ -2842,7 +2848,13 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 	int rc = 0;
 	int prev_therm_lvl;
 	int thermal_icl_ma;
+	//ontim:houzn add start
+	int tmp_fb_ready;
 
+	int fb_off_lvl[] = {0,0,0,0,2,4,6,7}; // <0      1       2      3      4       5       6    7>
+	int fb_on_lvl[] = {0,1,2,3,5,6,6,7}; // <3500 3500 3000 2500 2000 1200 800 0>
+	int kernel_lvl_sel = 0;
+	//ontim:houzn add end
 	if (!chip->thermal_mitigation) {
 		dev_err(chip->dev, "Thermal mitigation not supported\n");
 		return -EINVAL;
@@ -2858,10 +2870,12 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 				lvl_sel, chip->thermal_levels - 1);
 		lvl_sel = chip->thermal_levels - 1;
 	}
-
+//ontim:houzn add start
+#if 0
 	if (lvl_sel == chip->therm_lvl_sel)
 		return 0;
-
+#endif
+//ontim:houzn add end
 	mutex_lock(&chip->therm_lvl_lock);
 	prev_therm_lvl = chip->therm_lvl_sel;
 	chip->therm_lvl_sel = lvl_sel;
@@ -2884,8 +2898,28 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 		}
 		goto out;
 	}
-
+//ontim:houzn add start
+#if 0
 	if (chip->therm_lvl_sel == 0) {
+#else
+	tmp_fb_ready = chip->fb_ready;
+
+	if (tmp_fb_ready) {
+		kernel_lvl_sel = fb_on_lvl[chip->therm_lvl_sel];
+	} else {
+		kernel_lvl_sel = fb_off_lvl[chip->therm_lvl_sel];
+	}
+
+	thermal_icl_ma =
+		(int)chip->thermal_mitigation[kernel_lvl_sel];
+
+	pr_smb(PR_STATUS, "fb_ready=%d, therm_lvl=%d, kernel_lvl=%d, thermal_icl_ma=%d\n", 
+			tmp_fb_ready,chip->therm_lvl_sel, kernel_lvl_sel, thermal_icl_ma);
+
+	if(kernel_lvl_sel == 0) {
+		pr_smb(PR_STATUS, "Fb is ready, Ignoring thermal config.\n");
+#endif
+//ontim:houzn add end
 		rc = vote(chip->usb_icl_votable, THERMAL_ICL_VOTER, false, 0);
 		if (rc < 0)
 			pr_err("Couldn't disable USB thermal ICL vote rc=%d\n",
@@ -2896,8 +2930,8 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 			pr_err("Couldn't disable DC thermal ICL vote rc=%d\n",
 				rc);
 	} else {
-		thermal_icl_ma =
-			(int)chip->thermal_mitigation[chip->therm_lvl_sel];
+		//ontim:houzn add
+		//thermal_icl_ma = (int)chip->thermal_mitigation[chip->therm_lvl_sel];
 		rc = vote(chip->usb_icl_votable, THERMAL_ICL_VOTER, true,
 					thermal_icl_ma);
 		if (rc < 0)
@@ -3580,12 +3614,15 @@ static int smbchg_icl_loop_disable_check(struct smbchg_chip *chip)
 
 #define UNKNOWN_BATT_TYPE	"Unknown Battery"
 #define LOADING_BATT_TYPE	"Loading Battery Data"
+static irqreturn_t batt_cool_handler(int irq, void *_chip);
+
 static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 {
 	int rc = 0, max_voltage_uv = 0, fastchg_ma = 0, ret = 0, iterm_ua = 0;
 	struct device_node *batt_node, *profile_node;
 	struct device_node *node = chip->spmi->dev.of_node;
 	union power_supply_propval prop = {0,};
+	static int first_flag = 0;
 
 	rc = chip->bms_psy->get_property(chip->bms_psy,
 			POWER_SUPPLY_PROP_BATTERY_TYPE, &prop);
@@ -3684,7 +3721,23 @@ static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 			}
 		}
 	}
-
+//ontim:houzn add start
+	if (!of_find_property(chip->spmi->dev.of_node,
+				"qcom,cool-fastchg-current-comp", NULL)) {
+		rc = of_property_read_u32(profile_node, "qcom,cool-fastchg-current-comp",
+							&chip->cool_comp_ma);
+		if (rc) {
+			pr_warn("couldn't find battery cool fastchg comp current rc=%d\n", rc);
+			ret = rc;
+		}
+		pr_smb(PR_MISC,"cool-fastchg-current-comp=%d\n", chip->cool_comp_ma);
+		if((chip->cool_comp_ma)&&(first_flag == 0))
+		{
+			batt_cool_handler(0, chip);
+			first_flag = 1;
+		}
+	}
+//ontim:houzn add end
 	return ret;
 }
 
@@ -4506,12 +4559,16 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 	 * modes, skip all BC 1.2 current if external typec is supported.
 	 * Note: for SDP supporting current based on USB notifications.
 	 */
-	if (chip->typec_psy && (type != POWER_SUPPLY_TYPE_USB))
-		current_limit_ma = chip->typec_current_ma;
-	else if (type == POWER_SUPPLY_TYPE_USB)
+	 
+// ontim:houzn modify for charging without typec
+
+	//if (chip->typec_psy && (type != POWER_SUPPLY_TYPE_USB))
+	//	current_limit_ma = chip->typec_current_ma;
+	//else 
+	if (type == POWER_SUPPLY_TYPE_USB)
 		current_limit_ma = DEFAULT_SDP_MA;
-	else if (type == POWER_SUPPLY_TYPE_USB)
-		current_limit_ma = DEFAULT_SDP_MA;
+	else if (type == POWER_SUPPLY_TYPE_USB_DCP)
+		current_limit_ma = smbchg_default_dcp_icl_ma;
 	else if (type == POWER_SUPPLY_TYPE_USB_CDP)
 		current_limit_ma = DEFAULT_CDP_MA;
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP)
@@ -4519,7 +4576,7 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP_3)
 		current_limit_ma = smbchg_default_hvdcp3_icl_ma;
 	else
-		current_limit_ma = smbchg_default_dcp_icl_ma;
+		current_limit_ma = DEFAULT_SDP_MA;
 
 	pr_smb(PR_STATUS, "Type %d: setting mA = %d\n",
 		type, current_limit_ma);
@@ -5849,6 +5906,7 @@ static int smbchg_battery_set_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 		smbchg_system_temp_level_set(chip, val->intval);
+		pr_info("houzn:smbchg_system_temp_level_set = %d -------\n", val->intval);
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 		rc = smbchg_set_fastchg_current_user(chip, val->intval / 1000);
@@ -5946,6 +6004,8 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 	switch (prop) {
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = get_prop_batt_status(chip);
+		pr_info("houzn : batt_status = %d \n", val->intval);
+
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
 		val->intval = get_prop_batt_present(chip);
@@ -5959,12 +6019,14 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		val->intval = get_prop_charge_type(chip);
+		pr_info("houzn : charge_type = %d \n", val->intval);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		val->intval = smbchg_float_voltage_get(chip);
 		break;
 	case POWER_SUPPLY_PROP_HEALTH:
 		val->intval = get_prop_batt_health(chip);
+		//pr_info("houzn : batt_health = %d \n", val->intval);
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -6132,6 +6194,12 @@ static int smbchg_dc_is_writeable(struct power_supply *psy,
 #define BAT_LOW_BIT		BIT(5)
 #define BAT_MISSING_BIT		BIT(6)
 #define BAT_TERM_MISSING_BIT	BIT(7)
+// ontim:houzn add start
+//#define COOL_CURRENT_COMP       700
+#define WARM_CURRENT_COMP       1200
+#define COOL_VOLTAGE_SUB_COMP   0x0
+#define WARM_VOLTAGE_SUB_COMP   0x10
+// ontim:houzn add end
 static irqreturn_t batt_hot_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
@@ -6172,10 +6240,31 @@ static irqreturn_t batt_warm_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
 	u8 reg = 0;
+// ontim:houzn add start
+	u8 rc = 0;
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_warm = !!(reg & HOT_BAT_SOFT_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_smb(PR_INTERRUPT, "triggered: 0x%02x; irq = %d\n", reg, irq);
+
+	if (chip->batt_warm) {
+		rc = smbchg_fastchg_current_comp_set(chip, WARM_CURRENT_COMP);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set fastchg current comp rc = %d\n",
+				rc);
+			return rc;
+		}
+
+		rc = smbchg_float_voltage_comp_set(chip, WARM_VOLTAGE_SUB_COMP);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set float voltage comp rc = %d\n",
+				rc);
+			return rc;
+		}
+		pr_smb(PR_INTERRUPT, "make change jeita compensate when battery warm\n");
+	}
+// ontim:houzn add end
+
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -6188,10 +6277,33 @@ static irqreturn_t batt_cool_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
 	u8 reg = 0;
+// ontim:houzn add start
+	u8 rc = 0;
 
 	smbchg_read(chip, &reg, chip->bat_if_base + RT_STS, 1);
 	chip->batt_cool = !!(reg & COLD_BAT_SOFT_BIT);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
+	pr_smb(PR_INTERRUPT, "triggered: 0x%02x; irq = %d\n", reg, irq);
+	
+	if ((chip->batt_cool)&&(chip->cool_comp_ma)) {
+		pr_info("chip->cool_comp_ma = %d\n", chip->cool_comp_ma);
+		rc = smbchg_fastchg_current_comp_set(chip, chip->cool_comp_ma);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set fastchg current comp rc = %d\n",
+				rc);
+			return rc;
+		}
+
+		rc = smbchg_float_voltage_comp_set(chip, COOL_VOLTAGE_SUB_COMP);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set float voltage comp rc = %d\n",
+				rc);
+			return rc;
+		}
+
+		pr_smb(PR_INTERRUPT, "make change jeita compensate when battery cool.\n");
+	}
+// ontim:houzn add end
+
 	smbchg_parallel_usb_check_ok(chip);
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
@@ -8052,7 +8164,32 @@ static void rerun_hvdcp_det_if_necessary(struct smbchg_chip *chip)
 		}
 	}
 }
+//ontim:houzn add start
+static int smbchg_fb_notifier_cb(struct notifier_block *self,
+		unsigned long event, void *data)
+{
+	struct smbchg_chip *chip = container_of(self, struct smbchg_chip,
+			fb_notifier);
 
+	switch (event) {
+		case LCD_EVENT_ON:
+			chip->fb_ready = true;
+			break;
+		case LCD_EVENT_OFF:
+			chip->fb_ready = false;
+			break;
+		default:
+			break;
+	}
+	
+	if ((event == LCD_EVENT_ON) || (event == LCD_EVENT_OFF)) {
+		smbchg_system_temp_level_set(chip, chip->therm_lvl_sel);
+		pr_info("houzn:smbchg_system_temp_level_set = %d ------- 111\n", chip->therm_lvl_sel);
+	}
+	
+	return 0;
+}
+//ontim:houzn add end
 static int smbchg_probe(struct spmi_device *spmi)
 {
 	int rc;
@@ -8182,7 +8319,13 @@ static int smbchg_probe(struct spmi_device *spmi)
 			smbchg_hvdcp_enable_cb);
 	if (IS_ERR(chip->hvdcp_enable_votable))
 		return PTR_ERR(chip->hvdcp_enable_votable);
-
+//ontim:houzn add start
+	chip->fb_notifier.notifier_call = smbchg_fb_notifier_cb;
+	rc = fb_register_client(&chip->fb_notifier);
+	if (rc < 0) {
+		dev_err(&spmi->dev, "Failed to register fb notifier client\n");
+	}
+//ontim:houzn add end
 	INIT_WORK(&chip->usb_set_online_work, smbchg_usb_update_online_work);
 	INIT_DELAYED_WORK(&chip->parallel_en_work,
 			smbchg_parallel_usb_en_work);
@@ -8342,6 +8485,7 @@ unregister_batt_psy:
 	power_supply_unregister(&chip->batt_psy);
 out:
 	handle_usb_removal(chip);
+	fb_unregister_client(&chip->fb_notifier); //ontim:houzn add
 	return rc;
 }
 
@@ -8355,6 +8499,8 @@ static int smbchg_remove(struct spmi_device *spmi)
 		power_supply_unregister(&chip->dc_psy);
 
 	power_supply_unregister(&chip->batt_psy);
+
+	fb_unregister_client(&chip->fb_notifier); //ontim:houzn add
 
 	return 0;
 }
@@ -8459,6 +8605,8 @@ static void smbchg_shutdown(struct spmi_device *spmi)
 	rc = fake_insertion_removal(chip, true);
 	if (rc < 0)
 		pr_err("Couldn't fake insertion rc=%d\n", rc);
+
+	fb_unregister_client(&chip->fb_notifier); //ontim:houzn add
 
 	pr_smb(PR_MISC, "Wait 1S to settle\n");
 	msleep(1000);

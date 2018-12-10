@@ -26,14 +26,14 @@
 #include <linux/uaccess.h>
 #include <linux/msm-bus.h>
 #include <linux/pm_qos.h>
-
+#include <linux/string.h>
 #include "mdss.h"
 #include "mdss_panel.h"
 #include "mdss_dsi.h"
 #include "mdss_debug.h"
 #include "mdss_dsi_phy.h"
 #include "mdss_dba_utils.h"
-
+#include "dsi_access.h"
 #define XO_CLK_RATE	19200000
 #define CMDLINE_DSI_CTL_NUM_STRING_LEN 2
 
@@ -42,8 +42,247 @@ static struct mdss_dsi_data *mdss_dsi_res;
 
 #define DSI_DISABLE_PC_LATENCY 100
 #define DSI_ENABLE_PC_LATENCY PM_QOS_DEFAULT_VALUE
-
+#define sstrtoul(...) kstrtoul(__VA_ARGS__)
 static struct pm_qos_request mdss_dsi_pm_qos_request;
+#ifdef DSI_ACCESS
+
+static ssize_t dsi_access_sysfs_read_show(struct device *dev,
+		struct device_attribute *attr, char *buf);
+
+static ssize_t dsi_access_sysfs_read_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count);
+
+static ssize_t dsi_access_sysfs_write_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count);
+
+static DEVICE_ATTR(read, (S_IRUGO | S_IWUSR | S_IWGRP),
+		dsi_access_sysfs_read_show, dsi_access_sysfs_read_store);
+
+static DEVICE_ATTR(write, (S_IWUSR | S_IWGRP),
+		NULL, dsi_access_sysfs_write_store);
+
+static struct attribute *dsi_access_attrs[] = {
+	&dev_attr_read.attr,
+	&dev_attr_write.attr,
+	NULL,
+};
+
+struct dsi_access dsi_access;
+
+static struct mdss_dsi_ctrl_pdata *g_ctrl_pdata;
+
+static void dsi_access_parse_input(const char *buf)
+{
+	int retval;
+	int index;
+	char *input;
+	char *token;
+	unsigned long value;
+
+	index = 0;
+	input = (char *)buf;
+
+	while (input != NULL && index < BUFFER_LENGTH) {
+		token = strsep(&input, " ");
+		retval = sstrtoul(token, 16, &value);
+		if (retval < 0) {
+			pr_err("%s: Failed to convert \"%s\" to hex number\n",
+					__func__, token);
+			continue;
+		}
+		dsi_access.cmd_buffer[index] = (unsigned char)value;
+		index++;
+	}
+
+	if (index > 1)
+		dsi_access.cmd_length = index;
+
+	return;
+}
+
+static int dsi_access_send_cmd(struct mdss_dsi_ctrl_pdata *ctrl,
+		struct dsi_panel_cmds *pcmds, enum read_write rw)
+{
+	int retval;
+	struct dcs_cmd_req cmdreq;
+
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = pcmds->cmds;
+	cmdreq.cmds_cnt = pcmds->cmd_cnt;
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL | CMD_REQ_HS_MODE;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
+
+	if (rw == CMD_READ) {
+		cmdreq.flags |= CMD_REQ_RX;
+		cmdreq.rlen = dsi_access.read_length;
+		cmdreq.rbuf = dsi_access.read_buffer;
+	}
+
+	retval = mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+
+	return retval;
+}
+
+static int dsi_access_do_read(void)
+{
+	int retval;
+	struct dsi_ctrl_hdr *dchdr;
+	struct mdss_dsi_ctrl_pdata *ctrl;
+
+	ctrl = g_ctrl_pdata;
+
+	if (dsi_access.desc_length < 9) {
+		kfree(dsi_access.desc_buffer);
+		dsi_access.desc_buffer = kzalloc(9, GFP_KERNEL);
+		dsi_access.desc_length = 9;
+	}
+
+	if (dsi_access.cmds.cmds == NULL) {
+		dsi_access.cmds.cmds = kzalloc(sizeof(struct dsi_cmd_desc),
+				GFP_KERNEL);
+	}
+
+	dsi_access.desc_buffer[0] = dsi_access.cmd_buffer[0];
+	dsi_access.desc_buffer[1] = 0x01;
+	dsi_access.desc_buffer[2] = 0x00;
+	dsi_access.desc_buffer[3] = 0x00;
+	dsi_access.desc_buffer[4] = 0x00;
+	dsi_access.desc_buffer[5] = 0x00;
+	dsi_access.desc_buffer[6] = 0x00;
+	dsi_access.desc_buffer[7] = dsi_access.cmd_buffer[1];
+	dsi_access.desc_buffer[8] = 0x00;
+
+	dchdr = (struct dsi_ctrl_hdr *)dsi_access.desc_buffer;
+	dchdr->dlen = 2;
+
+	dsi_access.cmds.cmds[0].dchdr = *dchdr;
+	dsi_access.cmds.cmds[0].payload = &dsi_access.desc_buffer[7];
+	dsi_access.cmds.cmd_cnt = 1;
+
+	retval = dsi_access_send_cmd(ctrl, &dsi_access.cmds, CMD_READ);
+	if (retval < 0)
+		return retval;
+
+	return retval;
+}
+
+static int dsi_access_do_write(void)
+{
+	int retval;
+	unsigned int desc_length;
+	struct dsi_ctrl_hdr *dchdr;
+	struct mdss_dsi_ctrl_pdata *ctrl;
+
+	ctrl = g_ctrl_pdata;
+
+	desc_length = sizeof(struct dsi_ctrl_hdr) + dsi_access.cmd_length - 1;
+	if (desc_length > dsi_access.desc_length) {
+		kfree(dsi_access.desc_buffer);
+		dsi_access.desc_buffer = kzalloc(desc_length, GFP_KERNEL);
+		dsi_access.desc_length = desc_length;
+	}
+
+	if (dsi_access.cmds.cmds == NULL) {
+		dsi_access.cmds.cmds = kzalloc(sizeof(struct dsi_cmd_desc),
+				GFP_KERNEL);
+	}
+
+	dsi_access.desc_buffer[0] = dsi_access.cmd_buffer[0];
+	dsi_access.desc_buffer[1] = 0x01;
+	dsi_access.desc_buffer[2] = 0x00;
+	dsi_access.desc_buffer[3] = 0x00;
+	dsi_access.desc_buffer[4] = 0x00;
+	dsi_access.desc_buffer[5] = 0x00;
+	dsi_access.desc_buffer[6] = 0x00;
+	memcpy(&dsi_access.desc_buffer[7], &dsi_access.cmd_buffer[1],
+			dsi_access.cmd_length - 1);
+
+	dchdr = (struct dsi_ctrl_hdr *)dsi_access.desc_buffer;
+	dchdr->dlen = dsi_access.cmd_length - 1;
+
+	dsi_access.cmds.cmds[0].dchdr = *dchdr;
+	dsi_access.cmds.cmds[0].payload = &dsi_access.desc_buffer[7];
+	dsi_access.cmds.cmd_cnt = 1;
+
+	retval = dsi_access_send_cmd(ctrl, &dsi_access.cmds, CMD_WRITE);
+
+	return retval;
+}
+
+static ssize_t dsi_access_sysfs_read_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	unsigned int idx;
+	unsigned int cnt;
+	unsigned int count;
+
+	count = 0;
+
+	for (idx = 0; idx < dsi_access.read_length - 1; idx++) {
+		cnt = snprintf(buf, PAGE_SIZE - count, "%02x ",
+				dsi_access.read_buffer[idx]);
+		buf += cnt;
+		count += cnt;
+	}
+
+	cnt = snprintf(buf, PAGE_SIZE - count, "%02x\n",
+			dsi_access.read_buffer[idx]);
+
+	count += cnt;
+
+	return count;
+}
+
+static ssize_t dsi_access_sysfs_read_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval = -EINVAL;
+
+	dsi_access_parse_input(buf);
+
+	if (dsi_access.cmd_length > 2)
+		dsi_access.read_length = dsi_access.cmd_buffer[2];
+	else
+		dsi_access.read_length = 1;
+
+	if (dsi_access.cmd_length > 1) /* data type + command */
+		retval = dsi_access_do_read();
+	else
+		pr_err("%s: No valid command to send\n", __func__);
+
+	dsi_access.cmd_length = 0;
+
+	if (retval < 0)
+		return retval;
+	else
+		return count;
+}
+
+static ssize_t dsi_access_sysfs_write_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval = -EINVAL;
+
+	dsi_access_parse_input(buf);
+
+	if (dsi_access.cmd_length > 1) /* data type + command */
+		retval = dsi_access_do_write();
+	else
+		pr_err("%s: No valid command to send\n", __func__);
+
+	dsi_access.cmd_length = 0;
+
+	if (retval < 0)
+		return retval;
+	else
+		return count;
+}
+#endif
 
 static void mdss_dsi_pm_qos_add_request(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
@@ -4146,7 +4385,14 @@ int dsi_panel_device_register(struct platform_device *ctrl_pdev,
 
 	panel_debug_register_base("panel",
 		ctrl_pdata->ctrl_base, ctrl_pdata->reg_size);
-
+#ifdef DSI_ACCESS
+	if (pinfo->pdest == DISPLAY_1) {
+		dsi_access.attr_group.attrs = dsi_access_attrs;
+		g_ctrl_pdata = ctrl_pdata;
+	} else {
+		g_ctrl_pdata = ctrl_pdata;
+	}
+#endif
 	pr_debug("%s: Panel data initialized\n", __func__);
 	return 0;
 }

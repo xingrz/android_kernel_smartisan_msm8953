@@ -821,9 +821,10 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	default:
 		return -EINVAL;
 	}
-
-	pr_debug("PMIC input: code=%d, sts=0x%hhx\n",
-					cfg->key_code, pon_rt_sts);
+// BEGIN ontim,zhangxiang,2018/01/29, 0221944, St-result:PASS,Determine volume_down initial status.
+	pr_debug("PMIC input: code=%d, sts=0x%hhx, pon_type=%d\n",
+					cfg->key_code, pon_rt_sts, cfg->pon_type);
+// END  0221944
 	key_status = pon_rt_sts & pon_rt_bit;
 
 	if (pon->kpdpwr_dbc_enable && cfg->pon_type == PON_KPDPWR) {
@@ -2328,6 +2329,11 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 	pon->store_hard_reset_reason = of_property_read_bool(
 					spmi->dev.of_node,
 					"qcom,store-hard-reset-reason");
+
+// BEGIN ontim,zhangxiang,2018/01/29, 0221944, St-result:PASS,Determine volume_down initial status.
+	/* Determine volum_down initial status */
+	qpnp_pon_input_dispatch(pon, PON_RESIN);
+// END  0221944
 
 	qpnp_pon_debugfs_init(spmi);
 	return 0;

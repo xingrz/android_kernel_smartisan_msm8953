@@ -7,6 +7,13 @@
 
 struct device;
 
+enum dual_role_cc_vendor {
+	DUAL_ROLE_CC_UNKNOWN = 0,
+	DUAL_ROLE_CC_FAIRCHILD,
+	DUAL_ROLE_CC_PERICOM,
+	DUAL_ROLE_PROP_CC_VENDOR_TOTAL,
+};
+
 enum dual_role_supported_modes {
 	DUAL_ROLE_SUPPORTED_MODES_DFP_AND_UFP = 0,
 	DUAL_ROLE_SUPPORTED_MODES_DFP,
@@ -52,6 +59,7 @@ enum dual_role_property {
 	DUAL_ROLE_PROP_MODE,
 	DUAL_ROLE_PROP_PR,
 	DUAL_ROLE_PROP_DR,
+	DUAL_ROLE_PROP_CC_VENDOR,
 	DUAL_ROLE_PROP_VCONN_SUPPLY,
 };
 
@@ -62,6 +70,7 @@ struct dual_role_phy_desc {
 	/* /sys/class/dual_role_usb/<name>/ */
 	const char *name;
 	enum dual_role_supported_modes supported_modes;
+	enum dual_role_cc_vendor cc_vendor;
 	enum dual_role_property *properties;
 	size_t num_properties;
 

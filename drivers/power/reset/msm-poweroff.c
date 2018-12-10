@@ -45,6 +45,7 @@
 #define SCM_EDLOAD_MODE			0X01
 #define SCM_DLOAD_CMD			0x10
 
+extern const char linux_banner[];
 
 static int restart_mode;
 static void *restart_reason;
@@ -152,6 +153,7 @@ static bool get_dload_mode(void)
 	return dload_mode_enabled;
 }
 
+#ifndef _BUILD_USER
 static void enable_emergency_dload_mode(void)
 {
 	int ret;
@@ -176,6 +178,12 @@ static void enable_emergency_dload_mode(void)
 	if (ret)
 		pr_err("Failed to set secure EDLOAD mode: %d\n", ret);
 }
+#else
+static void enable_emergency_dload_mode(void)
+{
+
+}
+#endif
 
 static int dload_set(const char *val, struct kernel_param *kp)
 {
@@ -299,9 +307,14 @@ static void msm_restart_prepare(const char *cmd)
 
 	if (cmd != NULL) {
 		if (!strncmp(cmd, "bootloader", 10)) {
+//BEGIN ontim<zhangxiang><BUG:0233164> disable "adb reboot bootloader" in user version
+#ifndef _BUILD_USER
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_BOOTLOADER);
 			__raw_writel(0x77665500, restart_reason);
+#else
+			__raw_writel(0x77665501, restart_reason);
+#endif
 		} else if (!strncmp(cmd, "recovery", 8)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RECOVERY);
@@ -372,6 +385,7 @@ static void deassert_ps_hold(void)
 static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 {
 	pr_notice("Going down for restart now\n");
+	pr_notice("%s\n",linux_banner);
 
 	msm_restart_prepare(cmd);
 
@@ -478,8 +492,15 @@ static size_t store_emmc_dload(struct kobject *kobj, struct attribute *attr,
 }
 RESET_ATTR(emmc_dload, 0644, show_emmc_dload, store_emmc_dload);
 
+extern ssize_t show_offline_dump(struct kobject *kobj, struct attribute *attr,char *buf);
+extern size_t store_offline_dump(struct kobject *kobj, struct attribute *attr,const char *buf, size_t count);
+
+RESET_ATTR(offline_dump, 0644, show_offline_dump, store_offline_dump);
+
+
 static struct attribute *reset_attrs[] = {
 	&reset_attr_emmc_dload.attr,
+	&reset_attr_offline_dump.attr,
 	NULL
 };
 

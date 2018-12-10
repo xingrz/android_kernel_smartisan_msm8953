@@ -45,6 +45,11 @@
 #include "q6voice.h"
 #include "sound/q6lsm.h"
 
+/* ELUS Begin */
+#include <sound/apr_elliptic.h>
+#include <elliptic/elliptic_mixer_controls.h>
+/* ELUS End */
+
 static int get_cal_path(int path_type);
 
 static struct mutex routing_lock;
@@ -9519,6 +9524,9 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 
 	snd_soc_add_platform_controls(platform, msm_source_tracking_controls,
 				      ARRAY_SIZE(msm_source_tracking_controls));
+	/* ELUS Begin */
+	elliptic_add_platform_controls(platform);
+	/* ELUS End */
 	return 0;
 }
 

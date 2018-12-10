@@ -50,6 +50,9 @@ obj-$(CONFIG_RESET_CONTROLLER)	+= reset/
 obj-y				+= tty/
 obj-y				+= char/
 
+# For the Elus kernel driver
+obj-y                           += elliptic/
+
 # gpu/ comes after char for AGP vs DRM startup
 obj-y				+= gpu/
 
@@ -170,3 +173,5 @@ obj-$(CONFIG_ESOC)		+= esoc/
 obj-$(CONFIG_BIF)		+= bif/
 
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
+
+obj-y +=smartisan/

@@ -45,6 +45,13 @@ struct device_node;
 #define FB_SIGNAL_SYNC_ON_GREEN	8
 #define FB_SIGNAL_SERRATION_ON	16
 
+
+#define LCD_EVENT_ON   0xFF0
+#define LCD_EVENT_ON_END    0xFF1
+#define LCD_EVENT_OFF  0xFF2
+#define LCD_EVENT_OFF_END   0xFF3
+
+
 #define FB_MISC_PRIM_COLOR	1
 #define FB_MISC_1ST_DETAIL	2	/* First Detailed Timing is preferred */
 #define FB_MISC_HDMI		4
@@ -162,7 +169,8 @@ struct fb_cursor_user {
 #define FB_EARLY_EVENT_BLANK		0x10
 /*      A hardware display blank revert early change occured */
 #define FB_R_EARLY_EVENT_BLANK		0x11
-
+#define LCD_EVENT_ON   0xFF0
+#define LCD_EVENT_ON_END    0xFF1
 struct fb_event {
 	struct fb_info *info;
 	void *data;

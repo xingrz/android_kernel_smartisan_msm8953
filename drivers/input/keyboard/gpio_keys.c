@@ -332,19 +332,57 @@ static struct attribute_group gpio_keys_attr_group = {
 	.attrs = gpio_keys_attrs,
 };
 
+static unsigned long irq_time = 0;
+#define HOME_GPIO 0x57
 static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 {
 	const struct gpio_keys_button *button = bdata->button;
 	struct input_dev *input = bdata->input;
 	unsigned int type = button->type ?: EV_KEY;
 	int state;
+	int i;
 
-	state = (__gpio_get_value(button->gpio) ? 1 : 0) ^ button->active_low;
+	//state = (__gpio_get_value(button->gpio) ? 1 : 0) ^ button->active_low;
+	state = __gpio_get_value(button->gpio);
+	if (state < 0) {
+		dev_err(input->dev.parent, "testkey failed to get gpio state:%d\n", state);
+		return;
+	}
+
+	if (HOME_GPIO == button->gpio) {
+		for (i = 0; i < 300; i++) {
+			if (state != __gpio_get_value(button->gpio)) {
+				printk("testkey value is not equal ,noise occurred before, return\n");
+				return;
+			}
+		}
+		usleep_range(1000, 1000);
+	}
+
+
+	if (HOME_GPIO == button->gpio) {
+		for (i = 0; i < 300; i++) {
+			if (state != __gpio_get_value(button->gpio)) {
+				printk("testkey value is not equal ,noise occurred after, return\n");
+				return;
+			}
+		}
+	}
+
+	if (HOME_GPIO == button->gpio) {
+		if (abs(jiffies - irq_time) < msecs_to_jiffies(bdata->timer_debounce)) {
+			printk("testkey noise occurred, return\n");
+			return;
+		}
+	}
+
+	state = (state ? 1 : 0) ^ button->active_low;
 
 	if (type == EV_ABS) {
 		if (state)
 			input_event(input, type, button->code, button->value);
 	} else {
+		pr_info("%s: Button type = EV_KEY, Button keycode = 0x%x, Button value = %d\n", __func__, button->code, !!state);
 		input_event(input, type, button->code, !!state);
 	}
 	input_sync(input);
@@ -355,6 +393,7 @@ static void gpio_keys_gpio_work_func(struct work_struct *work)
 	struct gpio_button_data *bdata =
 		container_of(work, struct gpio_button_data, work);
 
+	pr_info("%s: -> gpio_keys_gpio_report_event\n", __func__);
 	gpio_keys_gpio_report_event(bdata);
 
 	if (bdata->button->wakeup)
@@ -374,6 +413,9 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 
 	BUG_ON(irq != bdata->irq);
 
+	if (HOME_GPIO == bdata->button->gpio) {
+		irq_time = jiffies;
+	}
 	if (bdata->button->wakeup)
 		pm_stay_awake(bdata->input->dev.parent);
 	if (bdata->timer_debounce)
@@ -610,6 +652,7 @@ static int gpio_keys_open(struct input_dev *input)
 	}
 
 	/* Report current state of buttons that are connected to GPIOs */
+	pr_info("%s: -> gpio_keys_report_state -> gpio_keys_gpio_report_event\n", __func__);
 	gpio_keys_report_state(ddata);
 
 	return 0;
@@ -965,6 +1008,7 @@ static int gpio_keys_resume(struct device *dev)
 	if (error)
 		return error;
 
+	pr_info("%s: -> gpio_keys_report_state -> gpio_keys_gpio_report_event\n", __func__);
 	gpio_keys_report_state(ddata);
 	return 0;
 }

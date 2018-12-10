@@ -359,7 +359,7 @@ struct input_keymap_entry {
 #define KEY_FIND		136	/* AC Search */
 #define KEY_CUT			137	/* AC Cut */
 #define KEY_HELP		138	/* AL Integrated Help Center */
-#define KEY_MENU		139	/* Menu (show menu) */
+#define KEY_MENU		580 //139	/* Menu (show menu) */
 #define KEY_CALC		140	/* AL Calculator */
 #define KEY_SETUP		141
 #define KEY_SLEEP		142	/* SC System Sleep */
@@ -480,6 +480,8 @@ struct input_keymap_entry {
 #define KEY_RFKILL		247	/* Key that controls all radios */
 
 #define KEY_MICMUTE		248	/* Mute / unmute the microphone */
+#define SLIDE_RIGHT             249
+#define SLIDE_LEFT              254
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 

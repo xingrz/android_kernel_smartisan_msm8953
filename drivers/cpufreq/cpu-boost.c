@@ -234,6 +234,11 @@ static void cpuboost_input_event(struct input_handle *handle,
 	if (!input_boost_enabled)
 		return;
 
+//hui+
+    if(!((type == EV_ABS && code == ABS_MT_TRACKING_ID) || (type == EV_KEY)))
+        return;
+//hui+,end
+
 	now = ktime_to_us(ktime_get());
 	if (now - last_input_time < MIN_INPUT_INTERVAL)
 		return;

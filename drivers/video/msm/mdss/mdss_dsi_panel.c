@@ -22,15 +22,29 @@
 #include <linux/qpnp/pwm.h>
 #include <linux/err.h>
 #include <linux/string.h>
-
+#include <linux/mutex.h>
 #include "mdss_dsi.h"
 #include "mdss_dba_utils.h"
 
 #define DT_CMD_HDR 6
 #define MIN_REFRESH_RATE 48
 #define DEFAULT_MDP_TRANSFER_TIME 14000
-
+extern int sre_mode;
 #define VSYNC_DELAY msecs_to_jiffies(17)
+struct dsi_panel_cmds color_temperature_cmds;
+struct dsi_panel_cmds color_temperature_resume_cmds;
+struct dsi_panel_cmds color_temperature_cmds_td4310_first;
+struct dsi_panel_cmds color_temperature_cmds_reset_td4310_first;
+struct dsi_panel_cmds cabc_ui_mode_td4310;
+struct dsi_panel_cmds cabc_still_mode_td4310;
+struct dsi_panel_cmds cabc_moving_mode_td4310;
+struct dsi_panel_cmds cabc_moving_mode_sharp_td4310;
+struct dsi_panel_cmds color_temperature_cmds_reset;
+struct dsi_panel_cmds sre_weak_level;
+struct dsi_panel_cmds sre_middle_level;
+struct dsi_panel_cmds sre_strong_level;
+struct dsi_panel_cmds sre_exit;
+static int temperature_level = 0xff;
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
@@ -171,7 +185,6 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			return;
 	}
-
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = pcmds->cmds;
 	cmdreq.cmds_cnt = pcmds->cmd_cnt;
@@ -220,6 +233,148 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
+static unsigned char  ie_level[2] = {0x55, 0x00};	/* DTYPE_DCS_WRITE1 */
+static struct dsi_cmd_desc ie_level_cmd = {
+	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(ie_level)},
+	ie_level
+};
+#if 0
+static struct dsi_cmd_desc pwm_level_cmd = {
+	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(pwm_level)},
+	pwm_level
+};
+#endif
+extern int is_eye_care_mode;
+extern int glove_open;
+extern int msm_point_stable;
+extern int synaptics_reg_write(unsigned short addr,unsigned char data,unsigned int len);
+ void synaptics_adjust_grip_swtich(bool mode);
+ static int synaptics_enter_glove_mode( int mode)
+{
+    int ret = 0;
+    unsigned short addr =0x001b;
+   unsigned char value=0;
+    if (mode)
+        value = 0x25;  //on
+    else
+        value = 0x05; //off
+    ret = synaptics_reg_write( addr, value, 1);
+    if (ret<0)
+    {
+        pr_err("[Mode]fts_enter_glove_mode write value fail");
+    }
+    return ret ;
+}
+void mdss_dsi_panel_ie_level_setting(struct mdss_panel_data *pdata, int level)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_dsi_ctrl_pdata *ctrl;
+	struct mdss_panel_info *pinfo;
+	struct dsi_panel_cmds *color_temperature_cmd=NULL;
+	u32 regvalue;
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+	pinfo = &(pdata->panel_info);
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			return;
+	}
+	pr_err("%s:-------- level=%d\n", __func__, level);
+	if(level==-1) return;
+	if (level == 18)
+		temperature_level = 0xff;
+	else if((level > 3) && (level < 22))
+		temperature_level = level;
+	if ((level > 3) && (level < 26))
+	{
+		switch (level) {
+		case 10:
+			color_temperature_cmd = &color_temperature_cmds;
+			is_eye_care_mode = 1;
+			break;
+		case 12:
+			color_temperature_cmd = &color_temperature_resume_cmds;
+			break;
+		case 9:
+			//color_temperature_cmd = &color_temperature_cmds_td4310_first;
+			break;
+		case 19:
+			//color_temperature_cmd = &color_temperature_cmds_reset_td4310_first;
+			break;
+		case 6:
+			color_temperature_cmd = &cabc_ui_mode_td4310;
+			break;
+		case 7:
+			color_temperature_cmd = &cabc_still_mode_td4310;
+			break;
+		case 8:
+			color_temperature_cmd = &cabc_moving_mode_td4310;
+			break;
+		case 13:
+			break;
+		case 18:
+			color_temperature_cmd = &color_temperature_cmds_reset ;
+			is_eye_care_mode = 0;
+			break;
+		default:
+			break;
+		}
+		if(color_temperature_cmd  !=NULL)
+		{
+			mdss_dsi_panel_cmds_send(ctrl, color_temperature_cmd, CMD_REQ_COMMIT);
+		}
+	}
+	else if (level == 84)
+	{
+		sre_mode = level;
+		color_temperature_cmd = &sre_weak_level;
+		mdss_dsi_panel_cmds_send(ctrl, color_temperature_cmd, CMD_REQ_COMMIT);
+	}
+	else if (level == 85)
+	{
+		sre_mode = level;
+		color_temperature_cmd = &sre_middle_level;
+		mdss_dsi_panel_cmds_send(ctrl, color_temperature_cmd, CMD_REQ_COMMIT);
+	}
+	else if (level == 96)
+	{
+		sre_mode = level;
+		color_temperature_cmd = &sre_strong_level;
+		mdss_dsi_panel_cmds_send(ctrl, color_temperature_cmd, CMD_REQ_COMMIT);
+	}
+	else if (level == 178)
+	{
+		sre_mode = level;
+		color_temperature_cmd = &sre_exit;
+		mdss_dsi_panel_cmds_send(ctrl, color_temperature_cmd, CMD_REQ_COMMIT);
+	}else if ((level <= 250) && (level >= 200) ){
+		regvalue = level - 200;
+		msm_point_stable = level;
+	}else if(level == 261){
+		glove_open = 1;
+		synaptics_enter_glove_mode(1);
+	}else if(level == 260){
+		glove_open = 0;
+		synaptics_enter_glove_mode(0);
+	}else if(level == 290){
+		synaptics_adjust_grip_swtich(true);
+	}else if(level == 291){
+		synaptics_adjust_grip_swtich(false);
+	}else if(level==0||level==129||level==130||level==131) {
+		ie_level[1] = (unsigned char)level;
+		pr_err("-----------send  cmd-----level=%d-------\n",level);
+		memset(&cmdreq, 0, sizeof(cmdreq));
+		cmdreq.cmds = &ie_level_cmd;
+		cmdreq.cmds_cnt = 1;
+		cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+		cmdreq.rlen = 0;
+		cmdreq.cb = NULL;
+		mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	}
+	else
+		pr_err("--------------no level=%d-------\n",level);
+}
+EXPORT_SYMBOL(mdss_dsi_panel_ie_level_setting);
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int rc = 0;
@@ -736,7 +891,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 
 	if (on_cmds->cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, on_cmds, CMD_REQ_COMMIT);
-
+	if (is_eye_care_mode == 1)
+		mdss_dsi_panel_ie_level_setting(pdata, 12);
 	if (pinfo->compression_mode == COMPRESSION_DSC)
 		mdss_dsi_panel_dsc_pps_send(ctrl, pinfo);
 
@@ -1113,58 +1269,6 @@ void mdss_dsi_panel_dsc_pps_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	pcmds.link_state = DSI_LP_MODE;
 
 	mdss_dsi_panel_cmds_send(ctrl, &pcmds, CMD_REQ_COMMIT);
-}
-
-static int mdss_dsi_parse_hdr_settings(struct device_node *np,
-		struct mdss_panel_info *pinfo)
-{
-	int rc = 0;
-	struct mdss_panel_hdr_properties *hdr_prop;
-
-	if (!np) {
-		pr_err("%s: device node pointer is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	if (!pinfo) {
-		pr_err("%s: panel info is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	hdr_prop = &pinfo->hdr_properties;
-	hdr_prop->hdr_enabled = of_property_read_bool(np,
-		"qcom,mdss-dsi-panel-hdr-enabled");
-
-	if (hdr_prop->hdr_enabled) {
-		rc = of_property_read_u32_array(np,
-				"qcom,mdss-dsi-panel-hdr-color-primaries",
-				hdr_prop->display_primaries,
-				DISPLAY_PRIMARIES_COUNT);
-		if (rc) {
-			pr_info("%s:%d, Unable to read color primaries,rc:%u",
-					__func__, __LINE__,
-					hdr_prop->hdr_enabled = false);
-		}
-
-		rc = of_property_read_u32(np,
-			"qcom,mdss-dsi-panel-peak-brightness",
-			&(hdr_prop->peak_brightness));
-		if (rc) {
-			pr_info("%s:%d, Unable to read hdr brightness, rc:%u",
-				__func__, __LINE__, rc);
-			hdr_prop->hdr_enabled = false;
-		}
-
-		rc = of_property_read_u32(np,
-			"qcom,mdss-dsi-panel-blackness-level",
-			&(hdr_prop->blackness_level));
-		if (rc) {
-			pr_info("%s:%d, Unable to read hdr brightness, rc:%u",
-				__func__, __LINE__, rc);
-			hdr_prop->hdr_enabled = false;
-		}
-	}
-	return 0;
 }
 
 static int mdss_dsi_parse_dsc_version(struct device_node *np,
@@ -2270,6 +2374,30 @@ static int  mdss_dsi_panel_config_res_properties(struct device_node *np,
 		"qcom,mdss-dsi-timing-switch-command",
 		"qcom,mdss-dsi-timing-switch-command-state");
 
+	mdss_dsi_parse_dcs_cmds(np, &color_temperature_cmds,
+		"qcom,mdss-dsi-panel-color-temperature-command", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &color_temperature_resume_cmds,
+		"qcom,mdss-dsi-panel-color-temperature-command_resume", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &color_temperature_cmds_td4310_first,
+		"qcom,mdss-dsi-panel-color-temperature-command-td4310-first", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &color_temperature_cmds_reset_td4310_first,
+		"qcom,mdss-dsi-panel-color-temperature-command-restore-td4310-first", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &cabc_still_mode_td4310,
+		"qcom,mdss-dsi-panel-cabc-still-mode-td4310", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &cabc_moving_mode_td4310,
+		"qcom,mdss-dsi-panel-cabc-moving-mode-td4310", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &cabc_ui_mode_td4310,
+		"qcom,mdss-dsi-panel-cabc-ui-mode-td4310", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &color_temperature_cmds_reset,
+		"qcom,mdss-dsi-panel-color-temperature-command-restore", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &sre_weak_level,
+		"qcom,mdss-dsi-panel-sre-weak-level", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &sre_middle_level,
+		"qcom,mdss-dsi-panel-sre-middle-level", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &sre_strong_level,
+		"qcom,mdss-dsi-panel-sre-strong-level", NULL);
+	mdss_dsi_parse_dcs_cmds(np, &sre_exit,
+		"qcom,mdss-dsi-panel-sre-exit", NULL);
 	rc = mdss_dsi_parse_topology_config(np, pt, panel_data, default_timing);
 	if (rc) {
 		pr_err("%s: parsing compression params failed. rc:%d\n",
@@ -2512,9 +2640,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		"qcom,mdss-dsi-lane-3-state");
 
 	rc = mdss_panel_parse_display_timings(np, &ctrl_pdata->panel_data);
-	if (rc)
-		return rc;
-	rc = mdss_dsi_parse_hdr_settings(np, pinfo);
 	if (rc)
 		return rc;
 
