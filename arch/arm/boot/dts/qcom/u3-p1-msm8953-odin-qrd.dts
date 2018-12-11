@@ -16,8 +16,7 @@
 #define CONFIG_VENDOR_SMARTISAN
 
 #include "msm8953.dtsi"
-#include "msm8953-qrd-sku3.dtsi"
-#include "u3-p1-msm8953-special-odin.dtsi"
+#include "msm-pmi8950.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. MSM8953 ODIN";
@@ -26,3 +25,35 @@
 	qcom,board-id= <0xb 0x1>;
 };
 
+#include "msm8953-qrd-sku3.dtsi"
+#include "u3-p1-msm8953-special-odin.dtsi"
+
+&usb3 {
+	vbus_dwc3-supply = <&smbcharger_charger_otg>;
+};
+
+&mdss_dsi1 {
+	lab-supply = <&lab_regulator>;
+	ibb-supply = <&ibb_regulator>;
+};
+
+&dsi_panel_pwr_supply {
+	qcom,panel-supply-entry@2 {
+		reg = <2>;
+		qcom,supply-name = "lab";
+		qcom,supply-min-voltage = <4600000>;
+		qcom,supply-max-voltage = <6000000>;
+		qcom,supply-enable-load = <100000>;
+		qcom,supply-disable-load = <100>;
+	};
+
+	qcom,panel-supply-entry@3 {
+		reg = <3>;
+		qcom,supply-name = "ibb";
+		qcom,supply-min-voltage = <4600000>;
+		qcom,supply-max-voltage = <6000000>;
+		qcom,supply-enable-load = <100000>;
+		qcom,supply-disable-load = <100>;
+		qcom,supply-post-on-sleep = <10>;
+	};
+};
