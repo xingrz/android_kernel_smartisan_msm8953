@@ -175,5 +175,6 @@ obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 obj-$(CONFIG_MOBICORE_DRIVER)	+= gud/
 
 ifdef CONFIG_VENDOR_SMARTISAN
+obj-y += smartisan/
 obj-y += fingerprint/
 endif
