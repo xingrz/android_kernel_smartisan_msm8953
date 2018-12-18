@@ -17,9 +17,19 @@
 #include "msm_camera_i2c_mux.h"
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include <linux/proc_fs.h>
+#endif
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define SENSOR_EEPROM_BASIC_INFO_FLAG 0x00
+#define SENSOR_EEPROM_MODULE_ID_OFFSET 0x06
+#define SENSOR_EEPROM_BASIC_INFO_FLAG_VALID 0x02
+#define SENSOR_EEPROM_SID 0xA0
+#endif
 
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
 {
@@ -208,6 +218,13 @@ static uint16_t msm_sensor_id_by_mask(struct msm_sensor_ctrl_t *s_ctrl,
 	return sensor_id;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern char back_cam_name[64];
+#ifdef QTECH_WRITE_OV13358
+unsigned char qtech_ov13358_otp_map[2048];
+#endif
+#endif // CONFIG_VENDOR_SMARTISAN
+
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0;
@@ -215,6 +232,13 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_i2c_client *sensor_i2c_client;
 	struct msm_camera_slave_info *slave_info;
 	const char *sensor_name;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	uint8_t camera_id = 0;
+	uint8_t module_id = 0;
+	uint8_t basic_info_flag = 0;
+	uint8_t module_id_otp = 0;
+	uint16_t sid_bp;
+#endif
 
 	if (!s_ctrl) {
 		pr_err("%s:%d failed: %pK\n",
@@ -224,6 +248,10 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
 	slave_info = s_ctrl->sensordata->slave_info;
 	sensor_name = s_ctrl->sensordata->sensor_name;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	camera_id = s_ctrl->sensordata->slave_info->camera_id;
+	module_id = s_ctrl->sensordata->slave_info->module_id;
+#endif
 
 	if (!sensor_i2c_client || !slave_info || !sensor_name) {
 		pr_err("%s:%d failed: %pK %pK %pK\n",
@@ -247,6 +275,89 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (CAMERA_2 != camera_id  && strstr(sensor_name, "s5k3l8") == NULL) {
+		sid_bp = sensor_i2c_client->cci_client->sid;
+		sensor_i2c_client->cci_client->sid = SENSOR_EEPROM_SID >> 1;
+
+		rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+			sensor_i2c_client, SENSOR_EEPROM_BASIC_INFO_FLAG,
+			&basic_info_flag, 1);
+		if (rc < 0) {
+			pr_err("%s: %s: read module id failed\n", __func__, sensor_name);
+			sensor_i2c_client->cci_client->sid = sid_bp;
+			return rc;
+		}
+		if (basic_info_flag != SENSOR_EEPROM_BASIC_INFO_FLAG_VALID) {
+#ifdef QTECH_WRITE_OV13358
+			if (strstr(back_cam_name, "ov13855_qtech") != NULL && camera_id == CAMERA_1) {
+				for (i = 0; i < 2011; i++)
+				{	rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+					         sensor_i2c_client, i,
+					         qtech_ov13358_otp_map[i], MSM_CAMERA_I2C_BYTE_DATA);
+					if (rc < 0) {
+						pr_err("ontimeko:write all map to slave eeprom failed\n");
+						sensor_i2c_client->cci_client->sid = sid_bp;
+						return -EINVAL;
+					}
+					msleep(1);
+				}
+				pr_err("ontimeko:write all map to slave eeprom ok\n");
+			}
+#endif
+			rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, SENSOR_EEPROM_BASIC_INFO_FLAG,
+				&basic_info_flag, 1);
+			if (rc < 0) {
+				pr_err("%s: %s: read module id failed\n", __func__, sensor_name);
+				sensor_i2c_client->cci_client->sid = sid_bp;
+				return rc;
+			}
+			if (basic_info_flag != SENSOR_EEPROM_BASIC_INFO_FLAG_VALID) {
+
+				pr_err("Err:%s basic_info_flag is %d\n",
+				       __func__, basic_info_flag);
+				sensor_i2c_client->cci_client->sid = sid_bp;
+				return -EINVAL;
+			}
+		}
+		rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+			sensor_i2c_client, SENSOR_EEPROM_MODULE_ID_OFFSET,
+			&module_id_otp, 1);
+		if (rc < 0) {
+			pr_err("%s: %s: read module id failed\n", __func__, sensor_name);
+			sensor_i2c_client->cci_client->sid = sid_bp;
+			return rc;
+		}
+#ifdef QTECH_WRITE_OV13358
+		if (strstr(sensor_name, "ov13855_qtech") != NULL && qtech_ov13358_otp_map[6] != 0x25) {
+			rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, 0x1530,
+				qtech_ov13358_otp_map, 1024);
+			if (rc < 0) {
+				pr_err("ontimeko:[1] save all map for slave failed\n");
+			}
+			rc = sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+				sensor_i2c_client, 0x1530 + 1024,
+				qtech_ov13358_otp_map + 1024, 1024);
+			if (rc < 0) {
+				pr_err("ontimeko:[2] save all map for slave failed\n");
+			}
+			pr_err("ontimeko:save all map for slave ok\n");
+		}
+#endif
+		pr_err("%s: %s: read module id: 0x%x expected id 0x%x:\n",
+			__func__, sensor_name, module_id_otp, module_id);
+		if (module_id_otp != module_id) {
+			sensor_i2c_client->cci_client->sid = sid_bp;
+			pr_err("Err:%s module id %x does not match %x\n",
+				__func__, module_id_otp, module_id);
+			return -EINVAL;
+		}
+		sensor_i2c_client->cci_client->sid = sid_bp;
+	}
+#endif // CONFIG_VENDOR_SMARTISAN
 	return rc;
 }
 
@@ -1426,6 +1537,9 @@ static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl = {
 	.i2c_read = msm_camera_cci_i2c_read,
 	.i2c_read_seq = msm_camera_cci_i2c_read_seq,
 	.i2c_write = msm_camera_cci_i2c_write,
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.i2c_write_seq = msm_camera_cci_i2c_write_seq,
+#endif
 	.i2c_write_table = msm_camera_cci_i2c_write_table,
 	.i2c_write_seq_table = msm_camera_cci_i2c_write_seq_table,
 	.i2c_write_table_w_microdelay =
