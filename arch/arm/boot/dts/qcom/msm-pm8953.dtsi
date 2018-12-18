@@ -47,6 +47,18 @@
 				qcom,pull-up = <1>;
 				linux,code = <114>;
 			};
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+			qcom,pon_3 {
+				qcom,pon-type = <3>;
+				qcom,support-reset = <1>;
+				qcom,pull-up = <1>;
+				qcom,s1-timer = <10256>;
+				qcom,s2-timer = <0>;
+				qcom,s2-type = <7>;
+				qcom,use-bark;
+			};
+#endif
 		};
 
 		pm8953_temp_alarm: qcom,temp-alarm@2400 {
@@ -245,6 +257,7 @@
 			};
 		};
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 		pm8953_typec: qcom,pm8953_typec@bf00 {
 			compatible = "qcom,qpnp-typec";
 			reg = <0xbf00 0x100>;
@@ -264,6 +277,7 @@
 						"vbus-err",
 						"vconn-oc";
 		};
+#endif
 	};
 
 	pm8953_1: qcom,pm8953@1 {

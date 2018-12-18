@@ -119,8 +119,12 @@
 		sdhc2 = &sdhc_2; /* SDC2 for SD card */
 		i2c2 = &i2c_2;
 		i2c3 = &i2c_3;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		i2c6 = &i2c_6;
+#else
 		i2c5 = &i2c_5;
 		spi3 = &spi_3;
+#endif
 	};
 
 	soc: soc { };
@@ -655,6 +659,7 @@
 		qcom,summing-threshold = <10>;
 	};
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 	spi_3: spi@78b7000 { /* BLSP1 QUP3 */
 		compatible = "qcom,spi-qup-v2";
 		#address-cells = <1>;
@@ -679,6 +684,7 @@
 		qcom,bam-producer-pipe-index = <9>;
 		qcom,master-id = <86>;
 	};
+#endif
 
 	i2c_2: i2c@78b6000 { /* BLSP1 QUP2 */
 		compatible = "qcom,i2c-msm-v2";
@@ -704,6 +710,7 @@
 			<&dma_blsp1 7 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 		/* DSI_TO_HDMI I2C configuration */
 		adv7533@39 {
 			compatible = "adv7533";
@@ -725,6 +732,7 @@
 			qcom,enable-load = <0>;
 			qcom,disable-load = <0>;
 		};
+#endif
 	};
 
 	i2c_3: i2c@78b7000 { /* BLSP1 QUP3 */

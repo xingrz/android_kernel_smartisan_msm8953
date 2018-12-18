@@ -25,6 +25,7 @@
 	status = "okay";
 };
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 &wsa881x_i2c_e {
 	status = "okay";
 };
@@ -40,3 +41,4 @@
 &wsa881x_i2c_45 {
 	status = "okay";
 };
+#endif
