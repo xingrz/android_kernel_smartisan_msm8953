@@ -735,9 +735,6 @@ int32_t msm_sensor_driver_probe(void *setting,
 	CDBG("power up size %d power down size %d\n",
 		slave_info->power_setting_array.size,
 		slave_info->power_setting_array.size_down);
-	/* Begin xiaopeng add module id 2016-12-27 */
-	CDBG("module id 0x%x", slave_info->sensor_id_info.module_id);
-	/* End xiaopeng add module id 2016-12-27 */
 	CDBG("position %d",
 		slave_info->sensor_init_params.position);
 	CDBG("mount %d",
@@ -810,10 +807,6 @@ int32_t msm_sensor_driver_probe(void *setting,
 	camera_info->sensor_id_reg_addr =
 		slave_info->sensor_id_info.sensor_id_reg_addr;
 	camera_info->sensor_id = slave_info->sensor_id_info.sensor_id;
-	/* Begin xiaopeng add module id 2016-12-27 */
-	camera_info->camera_id = slave_info->camera_id;
-	camera_info->module_id = slave_info->sensor_id_info.module_id;
-	/* End xiaopeng add module id 2016-12-27 */
 	camera_info->sensor_id_mask = slave_info->sensor_id_info.sensor_id_mask;
 
 	/* Fill CCI master, slave address and CCI default params */

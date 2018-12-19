@@ -1568,17 +1568,11 @@ static int32_t msm_cci_write(struct v4l2_subdev *sd,
 		break;
 	case MSM_CCI_I2C_WRITE:
 	case MSM_CCI_I2C_WRITE_SEQ:
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_lock(&cci_master_info->mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 		for (i = 0; i < NUM_QUEUES; i++) {
 			if (mutex_trylock(&cci_master_info->mutex_q[i])) {
 				rc = msm_cci_i2c_write(sd, c_ctrl, i,
 					MSM_SYNC_DISABLE);
 				mutex_unlock(&cci_master_info->mutex_q[i]);
-				/* Begin xiaopeng cci operation all protected 2016-01-03 */
-				mutex_unlock(&cci_master_info->mutex_o);
-				/* End xiaopeng cci operation all protected 2016-01-03 */
 				return rc;
 			}
 		}
@@ -1586,9 +1580,6 @@ static int32_t msm_cci_write(struct v4l2_subdev *sd,
 		rc = msm_cci_i2c_write(sd, c_ctrl,
 			PRIORITY_QUEUE, MSM_SYNC_DISABLE);
 		mutex_unlock(&cci_master_info->mutex_q[PRIORITY_QUEUE]);
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_unlock(&cci_master_info->mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 		break;
 	case MSM_CCI_I2C_WRITE_ASYNC:
 		rc = msm_cci_i2c_write_async(sd, c_ctrl,
@@ -1604,46 +1595,17 @@ static int32_t msm_cci_config(struct v4l2_subdev *sd,
 	struct msm_camera_cci_ctrl *cci_ctrl)
 {
 	int32_t rc = 0;
-	/* Begin xiaopeng CCI read mutex protect 2016-01-03 */
-	struct cci_device *cci_dev;
-	enum cci_i2c_master_t master;
-	struct msm_camera_cci_master_info *cci_master_info;
-	/* End xiaopeng CCI read mutex protect 2016-01-03 */
 	CDBG("%s line %d cmd %d\n", __func__, __LINE__,
 		cci_ctrl->cmd);
-	/* Begin xiaopeng CCI read mutex protect 2016-01-03 */
-	cci_dev = v4l2_get_subdevdata(sd);
-	if (!cci_dev || !cci_ctrl) {
-		pr_err("%s:%d failed: invalid params %p %p\n", __func__,
-			__LINE__, cci_dev, cci_ctrl);
-		rc = -EINVAL;
-		return rc;
-	}
-
-	master = cci_ctrl->cci_info->cci_i2c_master;
-	cci_master_info = &cci_dev->cci_master_info[master];
-	/* End xiaopeng CCI read mutex protect 2016-01-03 */
 	switch (cci_ctrl->cmd) {
 	case MSM_CCI_INIT:
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_lock(&cci_master_info->mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 		rc = msm_cci_init(sd, cci_ctrl);
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_unlock(&cci_master_info->mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 		break;
 	case MSM_CCI_RELEASE:
 		rc = msm_cci_release(sd);
 		break;
 	case MSM_CCI_I2C_READ:
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_lock(&cci_master_info->mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 		rc = msm_cci_i2c_read_bytes(sd, cci_ctrl);
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_unlock(&cci_master_info->mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 		break;
 	case MSM_CCI_I2C_WRITE:
 	case MSM_CCI_I2C_WRITE_SEQ:
@@ -1824,9 +1786,6 @@ static void msm_cci_init_cci_params(struct cci_device *new_cci_dev)
 			init_completion(&new_cci_dev->
 				cci_master_info[i].report_q[j]);
 			}
-		/* Begin xiaopeng cci operation all protected 2016-01-03 */
-		mutex_init(&new_cci_dev->cci_master_info[i].mutex_o);
-		/* End xiaopeng cci operation all protected 2016-01-03 */
 	}
 	return;
 }
