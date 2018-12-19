@@ -24,6 +24,27 @@
 
 #define SENSOR_MAX_MOUNTANGLE (360)
 
+#ifdef CONFIG_VENDOR_SMARTISAN_OSCAR
+char front_cam_name[64] = {0};
+char back_cam_name[64] = {0};
+char backaux_cam_name[64] = {0};
+
+/* get camera info*/
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/ctype.h>
+
+static char *rear_info;
+static char *rear_eeprom;
+static char *rear_actuator;
+static char *rear_aux;
+static char *front_info;
+static char *rear_aux_eeprom;
+static char *rear_aux_actuator;
+static char *front_eeprom;
+static char *front_actuator;
+#endif
+
 static struct v4l2_file_operations msm_sensor_v4l2_subdev_fops;
 static int32_t msm_sensor_driver_platform_probe(struct platform_device *pdev);
 
@@ -635,6 +656,178 @@ static void msm_sensor_fill_sensor_info(struct msm_sensor_ctrl_t *s_ctrl,
 	strlcpy(entity_name, s_ctrl->msm_sd.sd.entity.name, MAX_SENSOR_NAME);
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN_OSCAR
+/* get camera info*/
+static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	/*
+	format: REAR type, FRONT type
+	ex:
+	BACK                    ov13855_truly,                   BACK_AUX      ov13358_truly                        FRONT       s5k3p9ps
+	CameraId                            0                                                        1                                                       2
+	ChromatixName     ov13855_truly_chromatix                          ov13358_truly_chromatix                         s5k3p9ps_chromatix
+	EepromName         sunny_gt24c64a_ov13855                         sunny_gt24c64a_ov13358                         sunny_bl24c64_s5k3p9ps
+	ActuatorName        dw9800                                                   dw9800
+	*/
+	return sprintf(buf,"REAR %s AF %s  EEPROM %s \nREAR_AUX %s AF %s  EEPROM %s \nFRONT %s  AF %s  EEPROM %s",
+		rear_info, rear_actuator, rear_eeprom,
+		rear_aux, rear_aux_actuator, rear_aux_eeprom,
+		front_info, front_actuator, front_eeprom);
+}
+
+static struct kobj_attribute name_show_attr = {
+	.attr = {
+		.name = "name",
+		.mode = S_IRUGO,
+	},
+	.show = &name_show,
+};
+
+static struct attribute *properties_attrs[] = {
+	&name_show_attr.attr,
+	NULL
+};
+
+static struct attribute_group properties_attr_group = {
+	.attrs = properties_attrs,
+};
+
+static void msm_sensor_device_info(char *name)
+{
+	int ret;
+	struct kobject *properties_kobj;
+	static bool first_time = true;
+
+	if (first_time) {
+		first_time = false;
+		properties_kobj = kobject_create_and_add(name, NULL);
+
+		if (properties_kobj)
+			ret = sysfs_create_group(properties_kobj,&properties_attr_group);
+		if (!properties_kobj || ret)
+			pr_err("failed to create device info\n");
+	}
+}
+
+static void msm_sensor_save_info(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	int i;
+	int cut_point;
+	static char temp_info_r[50];
+	static char temp_info_r_act[50];
+	static char temp_info_eeprom[50];
+	static char temp_info_raux[50];
+	static char temp_info_raux_act[50];
+	static char temp_info_raux_eeprom[50];
+	static char temp_info_f[50];
+	static char temp_info_f_act[50];
+	static char temp_info_f_eeprom[50];
+	char temp_info[50] = {0};
+
+	if (s_ctrl->sensordata->cam_slave_info->camera_id == CAMERA_0) {
+		strcpy(temp_info, s_ctrl->sensordata->sensor_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_r, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i=0; i<strlen(temp_info_r); i++)
+			temp_info_r[i] = toupper(temp_info_r[i]);
+
+		rear_info = temp_info_r;
+		CDBG("%s(): rear_info: %s \n", __FUNCTION__, rear_info);
+
+		strcpy(temp_info, s_ctrl->sensordata->eeprom_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_eeprom, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_eeprom); i++)
+			temp_info_eeprom[i] = toupper(temp_info_eeprom[i]);
+
+		rear_eeprom = temp_info_eeprom;
+		CDBG("%s(): rear_eeprom: %s \n", __FUNCTION__, rear_eeprom);
+
+		strcpy(temp_info, s_ctrl->sensordata->actuator_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_r_act, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_r_act); i++)
+			temp_info_r_act[i] = toupper(temp_info_r_act[i]);
+
+		rear_actuator = temp_info_r_act;
+		CDBG("%s(): rear_actuator: %s \n", __FUNCTION__, rear_actuator);
+	} else if (s_ctrl->sensordata->cam_slave_info->camera_id == CAMERA_1) {
+		strcpy(temp_info, s_ctrl->sensordata->sensor_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_raux, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_raux); i++)
+			temp_info_f[i] = toupper(temp_info_raux[i]);
+
+		rear_aux = temp_info_raux;
+		CDBG("%s(): rear AUX: %s \n", __FUNCTION__, rear_aux);
+
+		strcpy(temp_info, s_ctrl->sensordata->eeprom_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_raux_eeprom, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_raux_eeprom); i++)
+			temp_info_raux_eeprom[i] = toupper(temp_info_raux_eeprom[i]);
+
+		rear_aux_eeprom= temp_info_raux_eeprom;
+		CDBG("%s(): rear_aux_eeprom: %s \n", __FUNCTION__, rear_aux_eeprom);
+
+		strcpy(temp_info, s_ctrl->sensordata->actuator_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_raux_act, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_raux_act); i++)
+			temp_info_raux_act[i] = toupper(temp_info_raux_act[i]);
+
+		rear_aux_actuator = temp_info_raux_act;
+		CDBG("%s(): rear_aux_actuator: %s \n", __FUNCTION__, rear_aux_actuator);
+	} else if (s_ctrl->sensordata->cam_slave_info->camera_id == CAMERA_2) {
+		strcpy(temp_info, s_ctrl->sensordata->sensor_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_f, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_f); i++)
+			temp_info_f[i] = toupper(temp_info_f[i]);
+
+		front_info = temp_info_f;
+		CDBG("%s(): front_info: %s \n", __FUNCTION__, front_info);
+
+		strcpy(temp_info, s_ctrl->sensordata->eeprom_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_f_eeprom, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_f_eeprom); i++)
+			temp_info_f_eeprom[i] = toupper(temp_info_f_eeprom[i]);
+
+		front_eeprom = temp_info_f_eeprom;
+		CDBG("%s(): front_eeprom: %s \n", __FUNCTION__,front_eeprom);
+
+		strcpy(temp_info, s_ctrl->sensordata->actuator_name);
+		cut_point = sizeof(temp_info);
+		strncpy(temp_info_f_act, temp_info, cut_point);
+
+		// Uppercase for AP
+		for (i = 0; i < strlen(temp_info_f_act); i++)
+			temp_info_f_act[i] = toupper(temp_info_f_act[i]);
+
+		front_actuator = temp_info_f_act;
+		CDBG("%s(): front_actuator: %s \n", __FUNCTION__, front_actuator);
+	}
+	else
+		CDBG("%s(): sensor not support  \n",__FUNCTION__);
+}
+#endif
+
 /* static function definition */
 int32_t msm_sensor_driver_probe(void *setting,
 	struct msm_sensor_info_t *probed_info, char *entity_name)
@@ -647,6 +840,11 @@ int32_t msm_sensor_driver_probe(void *setting,
 
 	unsigned long                        mount_pos = 0;
 	uint32_t                             is_yuv;
+
+#ifdef CONFIG_VENDOR_SMARTISAN_OSCAR
+	/* get camera info*/
+	msm_sensor_device_info("camera");
+#endif
 
 	/* Validate input parameters */
 	if (!setting) {
@@ -737,6 +935,10 @@ int32_t msm_sensor_driver_probe(void *setting,
 	CDBG("power up size %d power down size %d\n",
 		slave_info->power_setting_array.size,
 		slave_info->power_setting_array.size_down);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	CDBG("module id 0x%x",
+		slave_info->sensor_id_info.module_id);
+#endif
 	CDBG("position %d",
 		slave_info->sensor_init_params.position);
 	CDBG("mount %d",
@@ -812,6 +1014,10 @@ int32_t msm_sensor_driver_probe(void *setting,
 	camera_info->sensor_id_reg_addr =
 		slave_info->sensor_id_info.sensor_id_reg_addr;
 	camera_info->sensor_id = slave_info->sensor_id_info.sensor_id;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	camera_info->camera_id = slave_info->camera_id;
+	camera_info->module_id = slave_info->sensor_id_info.module_id;
+#endif
 	camera_info->sensor_id_mask = slave_info->sensor_id_info.sensor_id_mask;
 
 	/* Fill CCI master, slave address and CCI default params */
@@ -901,6 +1107,18 @@ CSID_TG:
 
 	pr_err("%s probe succeeded", slave_info->sensor_name);
 
+#ifdef CONFIG_VENDOR_SMARTISAN_OSCAR
+	if (slave_info->camera_id == CAMERA_0) {
+		strcpy(back_cam_name, slave_info->sensor_name);
+
+	} else if(slave_info->camera_id == CAMERA_1) {
+		strcpy(backaux_cam_name, slave_info->sensor_name);
+
+	} else if(slave_info->camera_id == CAMERA_2) {
+		strcpy(front_cam_name,slave_info->sensor_name);
+	}
+#endif
+
 	/*
 	 * Update the subdevice id of flash-src based on availability in kernel.
 	 */
@@ -952,6 +1170,11 @@ CSID_TG:
 	s_ctrl->sensordata->cam_slave_info = slave_info;
 
 	msm_sensor_fill_sensor_info(s_ctrl, probed_info, entity_name);
+
+#ifdef CONFIG_VENDOR_SMARTISAN_OSCAR
+	/* get camera info*/
+	msm_sensor_save_info(s_ctrl);
+#endif
 
 	/*
 	 * Set probe succeeded flag to 1 so that no other camera shall
