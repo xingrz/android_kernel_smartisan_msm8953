@@ -25,6 +25,10 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static uint16_t gpio90_powerup_cnt = 0; //JiGaoping add for GPIO90 reference count 2017/02/17
+#endif
+
 int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 	int num_vreg, struct msm_sensor_power_setting *power_setting,
 	uint16_t power_setting_size)
@@ -1484,6 +1488,11 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 			if (!ctrl->gpio_conf->gpio_num_info->valid
 				[power_setting->seq_val])
 				continue;
+#ifdef CONFIG_VENDOR_SMARTISAN
+			if (ctrl->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 90) {
+				gpio90_powerup_cnt++;
+			}
+#endif
 			CDBG("%s:%d gpio set val %d\n", __func__, __LINE__,
 				ctrl->gpio_conf->gpio_num_info->gpio_num
 				[power_setting->seq_val]);
@@ -1514,6 +1523,8 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 					__func__, __LINE__,
 					power_setting->seq_val, ctrl->num_vreg);
 
+//JiGaoping Begin: delete below code to avoid enable the gpio correspording to regulator 2017/02/17
+#ifndef CONFIG_VENDOR_SMARTISAN
 			rc = msm_cam_sensor_handle_reg_gpio(
 				power_setting->seq_val,
 				ctrl->gpio_conf, 1);
@@ -1522,6 +1533,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 					__func__);
 				goto power_up_failed;
 			}
+#endif
 			break;
 		case SENSOR_I2C_MUX:
 			if (ctrl->i2c_conf && ctrl->i2c_conf->use_i2c_mux)
@@ -1563,6 +1575,13 @@ power_up_failed:
 			if (!ctrl->gpio_conf->gpio_num_info->valid
 				[power_setting->seq_val])
 				continue;
+#ifdef CONFIG_VENDOR_SMARTISAN
+			if (ctrl->gpio_conf->gpio_num_info->gpio_num[power_setting->seq_val] == 90) {
+				gpio90_powerup_cnt--;
+				if (gpio90_powerup_cnt > 0)
+					continue;
+			}
+#endif
 			gpio_set_value_cansleep(
 				ctrl->gpio_conf->gpio_num_info->gpio_num
 				[power_setting->seq_val], GPIOF_OUT_INIT_LOW);
@@ -1580,8 +1599,11 @@ power_up_failed:
 					__func__, __LINE__,
 					power_setting->seq_val, ctrl->num_vreg);
 
+//JiGaoping Begin: delete below code to avoid enable the gpio correspording to regulator 2017/02/17
+#ifndef CONFIG_VENDOR_SMARTISAN
 			msm_cam_sensor_handle_reg_gpio(power_setting->seq_val,
 				ctrl->gpio_conf, GPIOF_OUT_INIT_LOW);
+#endif
 			break;
 		case SENSOR_I2C_MUX:
 			if (ctrl->i2c_conf && ctrl->i2c_conf->use_i2c_mux)
@@ -1674,6 +1696,13 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 			if (!ctrl->gpio_conf->gpio_num_info->valid
 				[pd->seq_val])
 				continue;
+#ifdef CONFIG_VENDOR_SMARTISAN
+			if (ctrl->gpio_conf->gpio_num_info->gpio_num[pd->seq_val] == 90) {
+				gpio90_powerup_cnt--;
+				if (gpio90_powerup_cnt > 0)
+					continue;
+			}
+#endif
 			gpio_set_value_cansleep(
 				ctrl->gpio_conf->gpio_num_info->gpio_num
 				[pd->seq_val],
@@ -1707,11 +1736,14 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 			} else
 				pr_err("%s error in power up/down seq data\n",
 								__func__);
+//JiGaoping Begin: delete below code to avoid enable the gpio correspording to regulator 2017/02/17
+#ifndef CONFIG_VENDOR_SMARTISAN
 			ret = msm_cam_sensor_handle_reg_gpio(pd->seq_val,
 				ctrl->gpio_conf, GPIOF_OUT_INIT_LOW);
 			if (ret < 0)
 				pr_err("ERR:%s Error while disabling VREG GPIO\n",
 					__func__);
+#endif
 			break;
 		case SENSOR_I2C_MUX:
 			if (ctrl->i2c_conf && ctrl->i2c_conf->use_i2c_mux)

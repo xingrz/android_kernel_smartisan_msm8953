@@ -2245,7 +2245,11 @@ static int msm_cpp_cfg_frame(struct cpp_device *cpp_dev,
 	struct msm_buf_mngr_info buff_mgr_info, dup_buff_mgr_info;
 	int32_t in_fd;
 	int32_t num_output_bufs = 1;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	uint32_t stripe_base = 0;
+#else
 	int32_t stripe_base = 0;
+#endif
 	uint32_t stripe_size;
 	uint8_t tnr_enabled;
 	enum msm_camera_buf_mngr_buf_type buf_type =
@@ -2279,6 +2283,15 @@ static int msm_cpp_cfg_frame(struct cpp_device *cpp_dev,
 		pr_err("Invalid frame message\n");
 		return -EINVAL;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (stripe_base == UINT_MAX || new_frame->num_strips >
+		(UINT_MAX - 1 - stripe_base) / stripe_size) {
+		pr_err("Invalid frame message,num_strips %d is large\n",
+			new_frame->num_strips);
+		return -EINVAL;
+	}
+#endif
 
 	if ((stripe_base + new_frame->num_strips * stripe_size + 1) !=
 		new_frame->msg_len) {

@@ -21,6 +21,13 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define SENSOR_EEPROM_BASIC_INFO_FLAG 0x00
+#define SENSOR_EEPROM_MODULE_ID_OFFSET 0x0e
+#define SENSOR_EEPROM_BASIC_INFO_FLAG_VALID 0x01
+#define SENSOR_EEPROM_SID 0x50
+#endif
+
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
 {
 	int idx;
@@ -215,6 +222,13 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_i2c_client *sensor_i2c_client;
 	struct msm_camera_slave_info *slave_info;
 	const char *sensor_name;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	uint8_t camera_id = 0;
+	uint8_t module_id = 0;
+	uint8_t basic_info_flag = 0;
+	uint8_t module_id_otp = 0;
+	uint16_t sid_bp;
+#endif
 
 	if (!s_ctrl) {
 		pr_err("%s:%d failed: %pK\n",
@@ -224,6 +238,10 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
 	slave_info = s_ctrl->sensordata->slave_info;
 	sensor_name = s_ctrl->sensordata->sensor_name;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	camera_id = s_ctrl->sensordata->slave_info->camera_id;
+	module_id = s_ctrl->sensordata->slave_info->module_id;
+#endif
 
 	if (!sensor_i2c_client || !slave_info || !sensor_name) {
 		pr_err("%s:%d failed: %pK %pK %pK\n",
@@ -247,6 +265,42 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (CAMERA_2 == camera_id) {
+		sid_bp = sensor_i2c_client->cci_client->sid;
+		sensor_i2c_client->cci_client->sid = SENSOR_EEPROM_SID;
+		sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+			sensor_i2c_client, SENSOR_EEPROM_BASIC_INFO_FLAG,
+			&basic_info_flag, 1);
+		if (rc < 0) {
+			pr_err("%s: %s: read module id failed\n", __func__, sensor_name);
+			sensor_i2c_client->cci_client->sid = sid_bp;
+			return rc;
+		}
+		if (basic_info_flag != SENSOR_EEPROM_BASIC_INFO_FLAG_VALID) {
+			pr_err("Err:%s basic_info_flag is %d\n",
+				__func__, basic_info_flag);
+			sensor_i2c_client->cci_client->sid = sid_bp;
+			return -EINVAL;
+		}
+		sensor_i2c_client->i2c_func_tbl->i2c_read_seq(
+			sensor_i2c_client, SENSOR_EEPROM_MODULE_ID_OFFSET,
+			&module_id_otp, 1);
+		if (rc < 0) {
+			pr_err("%s: %s: read module id failed\n", __func__, sensor_name);
+			sensor_i2c_client->cci_client->sid = sid_bp;
+			return rc;
+		}
+		sensor_i2c_client->cci_client->sid = sid_bp;
+		pr_err("%s: %s: read module id: 0x%x expected id 0x%x:\n",
+			__func__, sensor_name, module_id_otp, module_id);
+		if (module_id_otp != module_id) {
+			pr_err("Err:%s module id %x does not match %x\n",
+				__func__, module_id_otp, module_id);
+			return -EINVAL;
+		}
+	}
+#endif
 	return rc;
 }
 
