@@ -5039,7 +5039,9 @@ int synaptics_fw_updater(const unsigned char *fw_data)
 
 	fwu->image = fw_data;
 
+	printk("XiNGRZ %s: do fwu start\n", __func__);
 	retval = fwu_start_reflash();
+	printk("XiNGRZ %s: do fwu end: %d\n", __func__, retval);
 
 	fwu->image = NULL;
 
@@ -5075,7 +5077,9 @@ static void fwu_startup_fw_update_work(struct work_struct *work)
 	}
 #endif
 
+	printk("XiNGRZ %s: fw update start\n", __func__);
 	synaptics_fw_updater(NULL);
+	printk("XiNGRZ %s: fw update end\n", __func__);
 
 	return;
 }
