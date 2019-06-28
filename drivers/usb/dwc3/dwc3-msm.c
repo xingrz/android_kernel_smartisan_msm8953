@@ -166,6 +166,9 @@ enum dwc3_chg_type {
 	DWC3_DCP_CHARGER,
 	DWC3_CDP_CHARGER,
 	DWC3_PROPRIETARY_CHARGER,
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	DWC3_FLOATED_CHARGER,
+#endif
 };
 
 struct dwc3_msm {
@@ -2417,6 +2420,11 @@ static int dwc3_msm_power_get_property_usb(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_USB_OTG:
 		val->intval = !mdwc->id_state;
 		break;
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	case POWER_SUPPLY_PROP_DPDM_FLOAT:
+		val->intval = mdwc->chg_type == DWC3_FLOATED_CHARGER;
+		break;
+#endif
 	default:
 		return -EINVAL;
 	}
@@ -3375,8 +3383,14 @@ static int dwc3_msm_gadget_vbus_draw(struct dwc3_msm *mdwc, unsigned mA)
 		power_supply_type = POWER_SUPPLY_TYPE_USB;
 	else if (mdwc->chg_type == DWC3_CDP_CHARGER)
 		power_supply_type = POWER_SUPPLY_TYPE_USB_CDP;
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	else if (mdwc->chg_type == DWC3_DCP_CHARGER ||
+			mdwc->chg_type == DWC3_PROPRIETARY_CHARGER ||
+			mdwc->chg_type == DWC3_FLOATED_CHARGER)
+#else
 	else if (mdwc->chg_type == DWC3_DCP_CHARGER ||
 			mdwc->chg_type == DWC3_PROPRIETARY_CHARGER)
+#endif
 		power_supply_type = POWER_SUPPLY_TYPE_USB_DCP;
 	else
 		power_supply_type = POWER_SUPPLY_TYPE_UNKNOWN;
@@ -3439,11 +3453,23 @@ static void dwc3_check_float_lines(struct dwc3_msm *mdwc)
 
 	/* Get linestate with Idp_src enabled */
 	dpdm = usb_phy_dpdm_with_idp_src(mdwc->hs_phy);
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	if (dpdm & 0x2) {
+#else
 	if (dpdm == 0x2) {
+#endif
 		/* DP is HIGH = lines are floating */
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+		mdwc->chg_type = DWC3_FLOATED_CHARGER;
+#else
 		mdwc->chg_type = DWC3_PROPRIETARY_CHARGER;
+#endif
 		mdwc->otg_state = OTG_STATE_B_IDLE;
 		pm_runtime_put_sync(mdwc->dev);
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+		dwc3_msm_gadget_vbus_draw(mdwc,	dcp_max_current);
+		dev_dbg(mdwc->dev, "float charger\n");
+#endif
 		dbg_event(0xFF, "FLT psync",
 				atomic_read(&mdwc->dev->power.usage_count));
 	} else if (dpdm) {
@@ -3556,6 +3582,9 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			switch (mdwc->chg_type) {
 			case DWC3_DCP_CHARGER:
 			case DWC3_PROPRIETARY_CHARGER:
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+			case DWC3_FLOATED_CHARGER:
+#endif
 				dev_dbg(mdwc->dev, "DCP charger\n");
 				dwc3_msm_gadget_vbus_draw(mdwc,
 						dcp_max_current);
@@ -3572,8 +3601,10 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				/* check dp/dm for SDP & runtime_put if !SDP */
 				if (mdwc->detect_dpdm_floating) {
 					dwc3_check_float_lines(mdwc);
+#ifndef CONFIG_VENDOR_SMARTISAN_ODIN
 					if (mdwc->chg_type != DWC3_SDP_CHARGER)
 						break;
+#endif
 				}
 				dwc3_otg_start_peripheral(mdwc, 1);
 				mdwc->otg_state = OTG_STATE_B_PERIPHERAL;
@@ -3612,6 +3643,9 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			switch (mdwc->chg_type) {
 			case DWC3_DCP_CHARGER:
 			case DWC3_PROPRIETARY_CHARGER:
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+			case DWC3_FLOATED_CHARGER:
+#endif
 				dev_dbg(mdwc->dev, "lpm, DCP charger\n");
 				dwc3_msm_gadget_vbus_draw(mdwc,
 						dcp_max_current);

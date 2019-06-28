@@ -564,6 +564,9 @@ struct fg_chip {
 	int			actual_cap_uah;
 	int			status;
 	int			prev_status;
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	int			prev_soc;
+#endif
 	int			health;
 	enum fg_batt_aging_mode	batt_aging_mode;
 	struct alarm		hard_jeita_alarm;
@@ -2651,6 +2654,9 @@ static void update_sram_data_work(struct work_struct *work)
 				struct fg_chip,
 				update_sram_data.work);
 	int resched_ms, ret;
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	int capacity;
+#endif
 	bool tried_again = false;
 	int rc = 0;
 
@@ -2673,6 +2679,16 @@ wait:
 		goto out;
 	}
 	rc = update_sram_data(chip, &resched_ms);
+
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+	/* Update cycle every 30s, workaround for avoiding appear SOC transition. */
+	capacity = get_prop_capacity(chip);
+	if (capacity != chip->prev_soc) {
+		chip->prev_soc = capacity;
+		if (chip->power_supply_registered)
+			power_supply_changed(&chip->bms_psy);
+	}
+#endif
 
 out:
 	if (!rc)
@@ -7178,6 +7194,11 @@ static int fg_init_irqs(struct fg_chip *chip)
 					chip->soc_irq[FULL_SOC].irq, rc);
 				return rc;
 			}
+
+#ifdef CONFIG_VENDOR_SMARTISAN_ODIN
+			disable_irq_nosync(chip->soc_irq[FULL_SOC].irq);
+			chip->full_soc_irq_enabled = false;
+#endif
 
 			if (!chip->use_vbat_low_empty_soc) {
 				rc = devm_request_irq(chip->dev,
